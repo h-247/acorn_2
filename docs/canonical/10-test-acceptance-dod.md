@@ -1,5 +1,11 @@
 # 10 — Test Plan, Acceptance Tests & Definition of Done
 
+## For a new developer
+
+An HTTP 200 or a correct-looking screenshot is not enough. Start each test scenario with a concrete actor and dataset, perform the user action, then verify response, persisted authoritative state, derived state, authorization, audit and failure behavior. Every important rule needs at least one negative case.
+
+Prioritize tests that protect traceability, lifecycle transitions, permissions, idempotency and teacher approval over meaningless line coverage.
+
 ## Testing principle
 
 Prioritize domain correctness and end-to-end traceability over raw line coverage.

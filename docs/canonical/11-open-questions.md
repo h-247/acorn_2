@@ -1,5 +1,11 @@
 # 11 — Open Questions
 
+## For a new developer
+
+This page is a decision queue, not a place to fill gaps with guesses. Each question should have an owner, evidence to collect, deadline/impact and the spec or seed data it will affect. A starting parameter such as MCQ first or recent-N=20 is not a permanent academic truth.
+
+When a question is answered, record the decision and update the affected contract, test and implementation plan together. Keep non-blocking uncertainty visible rather than hiding it in code.
+
 Core architecture/workflow decisions are frozen. The following should be resolved from stakeholder/pilot evidence instead of arbitrary developer choices.
 
 1. Actual English-center skill/sub-skill taxonomy; CEFR/IELTS/internal framework relationship.

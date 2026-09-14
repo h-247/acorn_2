@@ -1,5 +1,11 @@
 # 07 — Failure, Security & Observability
 
+## For a new developer
+
+First classify data as authoritative, derived or external/best-effort. Preserve authoritative submissions, evidence and teacher decisions; recompute derived learner state and recommendations; expose AI failure without corrupting domain state. Design every retry so a timeout cannot create a second logical attempt or evidence record.
+
+Frontend visibility is not security. The backend must check role plus resource relationship, and logs must avoid secrets and unnecessary learner content. A useful error state tells the user what failed, what is safe, and whether to retry or continue manually.
+
 ## Consistency model
 
 Priority:

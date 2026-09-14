@@ -1,5 +1,11 @@
 # 06 — State & Workflow
 
+## For a new developer
+
+Do not collapse raw activity, learning evidence, learner state and recommendation into one AI step. For every transition write down current state + allowed actor/action + validation → next state + audit. This makes retries, forbidden actions and recovery behavior testable.
+
+Remember that `NO_DATA` is not poor performance, `AI-generated` is not approval, and a recommendation is not an assignment. These distinctions must exist in both API responses and UI states.
+
 ## Canonical separation
 
 ```text

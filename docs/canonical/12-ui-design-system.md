@@ -1,5 +1,11 @@
 # 12 — UI Design System & Component Specification
 
+## For a new developer
+
+This is a UI behavior contract, not a screenshot to copy blindly. For each component define its purpose, input data, semantic states, user actions, permission, loading/empty/error/no-data behavior, responsive behavior and accessibility. Domain/API contracts outrank colors and layout.
+
+Keep recommendation, learner state, AI origin and approval visually distinct. Preserve readability and progressive disclosure instead of shrinking type or hiding important evidence to fit one viewport.
+
 ## Product identity
 
 **Acorn by Agentivium AI**<br>

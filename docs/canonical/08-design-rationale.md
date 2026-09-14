@@ -1,5 +1,11 @@
 # 08 — Design Rationale
 
+## For a new developer
+
+This document explains why the frozen decisions exist and what trade-off they accept. A decision is not an excuse to copy one implementation forever: keep the invariant, but revisit the decision only when new evidence, scale, ownership or reliability needs justify the cost.
+
+When proposing a change, state the current problem, evidence, affected invariant, migration/test/operational cost and the spec/ADR that must change. Do not replace deterministic domain rules with an LLM merely because the demo looks more natural.
+
 ## Frozen decisions
 
 | Decision | Selected |

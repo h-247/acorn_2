@@ -1,5 +1,11 @@
 # 03 — Current State
 
+## For a new developer
+
+Greenfield means there is no legacy code or production schema to preserve; it does not mean there are no rules. Frozen decisions can be implemented now, while working assumptions must remain easy to revise and open questions must not be guessed.
+
+BDC Hub is a selective implementation reference. Reuse generic UI/foundation assets only after checking Acorn's domain meaning, permissions and contracts. Do not import BDC-specific architecture just because its code already exists.
+
 ## Greenfield
 
 There is no existing Acorn codebase, production schema, API contract, deployment topology, production data or legacy workflow that must be preserved.

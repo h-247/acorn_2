@@ -1,5 +1,11 @@
 # 09 — Implementation Plan & Rollout
 
+## For a new developer
+
+Build vertical slices, not isolated layers. A slice is only complete when a real use case crosses UI, API, authorization, domain logic, persistence, audit/metrics and automated tests. Seed data can help a screen render, but it must not be mistaken for production truth.
+
+Each phase needs a demoable happy path, negative/permission path, retry behavior and an explicit list of assumptions or unfinished work. Stakeholder evidence collection runs alongside implementation so uncertain taxonomy and workflow details are refined deliberately.
+
 ## Delivery principle
 
 Deliver vertical slices:

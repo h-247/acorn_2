@@ -4,6 +4,35 @@ This directory contains Acorn's versioned product and technical specification. I
 
 Keep these documents self-contained and update them in the same change when a product or technical decision changes.
 
+## How to use these specs as a new developer
+
+These documents are implementation guidance, not a list of slogans or database tables. Read `00-overview.md` first, then follow the order in the table below. For a feature, start from the user-visible use case and trace it through the relevant contract, state transition, persistence, authorization, failure behavior and acceptance test.
+
+When a sentence says **must**, treat it as a contract. When it says **starting direction**, **recommended** or **open question**, do not silently turn it into a permanent product decision. Ask for evidence or record the decision in the appropriate spec/ADR.
+
+The authority order is:
+
+```text
+domain/API contract
+→ lifecycle and permission rules
+→ UX/UI behavior
+→ design system
+→ mockup or implementation convenience
+```
+
+Every end-to-end feature should be explainable as:
+
+```text
+user action
+→ API/application service
+→ authoritative data
+→ derived data (if any)
+→ audit/metrics
+→ UI state and acceptance test
+```
+
+Do not use a mock, an LLM response, a frontend-only check or a database row as a substitute for the relevant contract.
+
 | File | Scope |
 |---|---|
 | `00-overview.md` | North Star, scope, canonical loop |

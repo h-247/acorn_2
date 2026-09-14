@@ -1,5 +1,11 @@
 # 05 — Contracts & Data Model
 
+## For a new developer
+
+A contract describes business intent, not an ORM row. Before adding a field or endpoint, identify the caller, required input, permission check, state transition, persisted result, error behavior, idempotency rule and audit requirement. Keep IDs opaque, use explicit enums and preserve provenance.
+
+For example, adapting a material creates a new variant linked to its source; it must not silently overwrite the original. Historical submissions and evidence must remain interpretable after later edits.
+
 ## Contract principles
 
 - Frontend ↔ backend: REST API.

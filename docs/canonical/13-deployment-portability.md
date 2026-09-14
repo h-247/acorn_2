@@ -1,5 +1,11 @@
 # 13 — Deployment, Cloud & Portability
 
+## For a new developer
+
+Local development must work without a Cloudflare account. The portable core is a containerized API, PostgreSQL, S3-compatible object storage and a provider-independent AI adapter. Cloudflare/R2 and MinIO are infrastructure choices behind those boundaries.
+
+When adding an integration, decide whether it is domain logic or an adapter, verify a local equivalent, keep secrets in configuration, and document retry/backup/failure behavior. Do not import Cloudflare runtime APIs into domain/application code.
+
 > **Cloudflare Free Tier is a deployment optimization, not the architecture. PostgreSQL + S3-compatible storage + containerized API are the portable architecture.**
 
 ## Frozen baseline

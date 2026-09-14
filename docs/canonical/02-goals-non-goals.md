@@ -1,5 +1,11 @@
 # 02 — Goals & Non-goals
 
+## For a new developer
+
+Goals describe what the MVP must prove; non-goals protect the team from scope drift. Convert a goal into a capability, persisted data and an acceptance scenario. For example, “structured evidence” requires source, skill, score and time—not merely an Evidence table or a number printed in the UI.
+
+If a new request conflicts with a non-goal, record the impact and get a scope decision before changing architecture. “The model can do it” is not enough reason to add autonomous behavior.
+
 ## Goals
 
 ### G1 — Semantic learning-material management

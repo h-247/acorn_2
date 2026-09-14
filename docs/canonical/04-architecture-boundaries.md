@@ -1,5 +1,11 @@
 # 04 — Target Architecture & Responsibility Boundaries
 
+## For a new developer
+
+Follow a request from UI → REST endpoint → application service → domain/repository → PostgreSQL or object storage → response DTO. Each layer has a job. The frontend renders and collects input; the backend owns authorization and domain truth; storage adapters hide infrastructure details; AI is an optional assistive dependency.
+
+Do not calculate learner state in a component, let the client decide permissions, write directly into another module's tables, or let a provider SDK leak into domain models. One deployable backend can still have strict internal boundaries.
+
 ## Target architecture
 
 ```text

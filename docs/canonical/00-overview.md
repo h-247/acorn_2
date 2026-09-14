@@ -1,5 +1,11 @@
 # Acorn — Technical Design Overview
 
+## For a new developer
+
+This is the map of the product. Read it before opening a module or building a screen. Acorn is not just a file library and not an autonomous AI tutor: the important path is material → learning activity → evidence → learner state → teacher decision. The linked canonical documents define each part of that path.
+
+If you are unsure where a feature belongs, ask which step it supports, which actor owns the decision, and which persisted data lets another developer explain the result later.
+
 ## Product
 
 **Acorn by Agentivium AI**<br>
