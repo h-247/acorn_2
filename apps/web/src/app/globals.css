@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary-blue: #0967F7;
+  --primary-dark: #0758D8;
+  --deep-blue: #082051;
+  --slate-blue: #5969AB;
+  --neutral-gray: #656C79;
+  --light-surface: #F3F6FC;
+  --white: #FFFFFF;
+}
+
+body {
+  color: var(--deep-blue);
+  background-color: var(--light-surface);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}

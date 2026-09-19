@@ -1,0 +1,590 @@
+import { z } from 'zod';
+import {
+  UserRole,
+  SkillArea,
+  CEFRLevel,
+  Difficulty,
+  MaterialStatus,
+  MaterialType,
+  AssessmentStatus,
+  QuestionType,
+  SubmissionStatus,
+  EvidenceType,
+  EvaluatorType,
+  ConfidenceLevel,
+  RecommendationAction,
+  TeacherDecisionStatus,
+  AIGenerationStatus,
+} from './enums';;
+
+export * from './enums';;
+
+// --- Identity & Auth ---
+export const AuthUserSchema = z.object({
+  id: z.string().uuid(),
+  email: z.string().email(),
+  name: z.string(),
+  role: z.nativeEnum(UserRole),
+  avatarUrl: z.string().optional(),
+});
+export type AuthUser = z.infer<typeof AuthUserSchema>;
+
+export const LoginRequestSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+});
+export type LoginRequest = z.infer<typeof LoginRequestSchema>;
+
+export const LoginResponseSchema = z.object({
+  token: z.string(),
+  user: AuthUserSchema,
+});
+export type LoginResponse = z.infer<typeof LoginResponseSchema>;
+
+// --- Taxonomy & Skills ---
+export const SkillNodeSchema = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  name: z.string(),
+  area: z.nativeEnum(SkillArea),
+  parentId: z.string().uuid().nullable().optional(),
+  description: z.string().optional(),
+  level: z.nativeEnum(CEFRLevel).optional(),
+});
+export type SkillNode = z.infer<typeof SkillNodeSchema>;
+
+export const SkillTreeSchema = z.array(
+  SkillNodeSchema.extend({
+    children: z.array(SkillNodeSchema).optional(),
+  })
+);
+export type SkillTree = z.infer<typeof SkillTreeSchema>;
+
+// --- Course & Class ---
+export const ClassSummarySchema = z.object({
+  id: z.string().uuid(),
+  courseId: z.string().uuid(),
+  courseName: z.string(),
+  name: z.string(),
+  level: z.nativeEnum(CEFRLevel),
+  teacherId: z.string().uuid(),
+  teacherName: z.string(),
+  learnerCount: z.number().int().nonnegative(),
+  nextActivity: z.string().optional(),
+  pendingSubmissionsCount: z.number().int().nonnegative().default(0),
+  activeAssessmentsCount: z.number().int().nonnegative().default(0),
+});
+export type ClassSummary = z.infer<typeof ClassSummarySchema>;
+
+export const ClassDetailSchema = ClassSummarySchema.extend({
+  description: z.string().optional(),
+  learners: z.array(
+    z.object({
+      id: z.string().uuid(),
+      name: z.string(),
+      email: z.string().email(),
+      level: z.nativeEnum(CEFRLevel),
+      overallProficiency: z.number().min(0).max(100).optional(),
+      needsAttention: z.boolean().default(false),
+      lastActivityAt: z.string().datetime().optional(),
+    })
+  ),
+});
+export type ClassDetail = z.infer<typeof ClassDetailSchema>;
+
+// --- Material ---
+export const MaterialProvenanceSchema = z.object({
+  sourceMaterialId: z.string().uuid().nullable().optional(),
+  sourceMaterialTitle: z.string().optional(),
+  adaptationType: z.string().optional(),
+  createdFromAIGenerationId: z.string().uuid().nullable().optional(),
+  notes: z.string().optional(),
+});
+export type MaterialProvenance = z.infer<typeof MaterialProvenanceSchema>;
+
+export const MaterialVersionSchema = z.object({
+  id: z.string().uuid(),
+  materialId: z.string().uuid(),
+  versionNumber: z.number().int().positive(),
+  content: z.string(),
+  summary: z.string().optional(),
+  changelog: z.string().optional(),
+  createdAt: z.string().datetime(),
+  createdBy: z.string().uuid(),
+});
+export type MaterialVersion = z.infer<typeof MaterialVersionSchema>;
+
+export const MaterialDTOSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string(),
+  type: z.nativeEnum(MaterialType),
+  primarySkillId: z.string().uuid(),
+  primarySkillName: z.string(),
+  level: z.nativeEnum(CEFRLevel),
+  estimatedMinutes: z.number().int().positive().default(10),
+  source: z.string(),
+  status: z.nativeEnum(MaterialStatus),
+  currentVersionNumber: z.number().int().positive(),
+  content: z.string(),
+  summary: z.string().optional(),
+  usageCount: z.number().int().nonnegative().default(0),
+  provenance: MaterialProvenanceSchema.optional(),
+  tags: z.array(z.string()).default([]),
+  sharedWithClassesCount: z.number().int().nonnegative().default(0),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type MaterialDTO = z.infer<typeof MaterialDTOSchema>;
+
+export const CreateMaterialRequestSchema = z.object({
+  title: z.string().min(3),
+  type: z.nativeEnum(MaterialType),
+  primarySkillId: z.string().uuid(),
+  level: z.nativeEnum(CEFRLevel),
+  estimatedMinutes: z.number().int().positive().default(10),
+  content: z.string().min(1),
+  summary: z.string().optional(),
+  source: z.string().default('Teacher Library'),
+  tags: z.array(z.string()).default([]),
+});
+export type CreateMaterialRequest = z.infer<typeof CreateMaterialRequestSchema>;
+
+export const AdaptMaterialRequestSchema = z.object({
+  sourceMaterialId: z.string().uuid(),
+  title: z.string().min(3),
+  targetSkillId: z.string().uuid().optional(),
+  targetLevel: z.nativeEnum(CEFRLevel).optional(),
+  contentModifications: z.string().min(1),
+  adaptationReason: z.string().optional(),
+  tags: z.array(z.string()).default([]),
+});
+export type AdaptMaterialRequest = z.infer<typeof AdaptMaterialRequestSchema>;
+
+// --- Question & Assessment ---
+export const QuestionSkillMappingSchema = z.object({
+  skillId: z.string().uuid(),
+  skillName: z.string(),
+  role: z.enum(['PRIMARY', 'SECONDARY']).default('PRIMARY'),
+  weight: z.number().min(0).max(1).default(1.0),
+});
+export type QuestionSkillMapping = z.infer<typeof QuestionSkillMappingSchema>;
+
+export const QuestionDTOSchema = z.object({
+  id: z.string().uuid(),
+  type: z.nativeEnum(QuestionType),
+  prompt: z.string(),
+  passage: z.string().optional(),
+  options: z.array(z.string()).optional(),
+  correctAnswer: z.string().optional(),
+  rubric: z
+    .array(
+      z.object({
+        criteria: z.string(),
+        description: z.string().optional(),
+        maxScore: z.number(),
+      })
+    )
+    .optional(),
+  difficulty: z.nativeEnum(Difficulty),
+  level: z.nativeEnum(CEFRLevel),
+  skills: z.array(QuestionSkillMappingSchema),
+  sourceMaterialId: z.string().uuid().nullable().optional(),
+  sourceMaterialTitle: z.string().optional(),
+  usageCount: z.number().int().nonnegative().default(0),
+  createdAt: z.string().datetime(),
+});
+export type QuestionDTO = z.infer<typeof QuestionDTOSchema>;
+
+export const CreateQuestionRequestSchema = z.object({
+  type: z.nativeEnum(QuestionType),
+  prompt: z.string().min(1),
+  passage: z.string().optional(),
+  options: z.array(z.string()).optional(),
+  correctAnswer: z.string().optional(),
+  rubric: z
+    .array(
+      z.object({
+        criteria: z.string(),
+        description: z.string().optional(),
+        maxScore: z.number(),
+      })
+    )
+    .optional(),
+  difficulty: z.nativeEnum(Difficulty),
+  level: z.nativeEnum(CEFRLevel),
+  skills: z.array(QuestionSkillMappingSchema).min(1),
+  sourceMaterialId: z.string().uuid().optional(),
+});
+export type CreateQuestionRequest = z.infer<typeof CreateQuestionRequestSchema>;
+
+export const AssessmentItemDTOSchema = z.object({
+  id: z.string().uuid(),
+  assessmentId: z.string().uuid(),
+  questionId: z.string().uuid(),
+  sequenceOrder: z.number().int().positive(),
+  points: z.number().positive().default(1),
+  question: QuestionDTOSchema,
+});
+export type AssessmentItemDTO = z.infer<typeof AssessmentItemDTOSchema>;
+
+export const AssessmentDTOSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string(),
+  description: z.string().optional(),
+  instructions: z.string().optional(),
+  level: z.nativeEnum(CEFRLevel),
+  status: z.nativeEnum(AssessmentStatus),
+  timeLimitMinutes: z.number().int().positive().nullable().optional(),
+  items: z.array(AssessmentItemDTOSchema).default([]),
+  totalPoints: z.number().nonnegative().default(0),
+  skillsCovered: z.array(z.string()).default([]),
+  createdBy: z.string().uuid(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type AssessmentDTO = z.infer<typeof AssessmentDTOSchema>;
+
+export const CreateAssessmentRequestSchema = z.object({
+  title: z.string().min(3),
+  description: z.string().optional(),
+  instructions: z.string().optional(),
+  level: z.nativeEnum(CEFRLevel),
+  timeLimitMinutes: z.number().int().positive().optional(),
+  questionIds: z.array(z.string().uuid()).min(1),
+});
+export type CreateAssessmentRequest = z.infer<typeof CreateAssessmentRequestSchema>;
+
+export const AssignAssessmentRequestSchema = z.object({
+  assessmentId: z.string().uuid(),
+  classId: z.string().uuid().optional(),
+  learnerIds: z.array(z.string().uuid()).optional(),
+  dueAt: z.string().datetime().optional(),
+});
+export type AssignAssessmentRequest = z.infer<typeof AssignAssessmentRequestSchema>;
+
+export const AssignmentDTOSchema = z.object({
+  id: z.string().uuid(),
+  assessmentId: z.string().uuid(),
+  assessmentTitle: z.string(),
+  classId: z.string().uuid().nullable().optional(),
+  className: z.string().optional(),
+  learnerId: z.string().uuid().nullable().optional(),
+  learnerName: z.string().optional(),
+  assignedAt: z.string().datetime(),
+  dueAt: z.string().datetime().nullable().optional(),
+  status: z.enum(['OPEN', 'SUBMITTED', 'GRADED', 'CLOSED']),
+});
+export type AssignmentDTO = z.infer<typeof AssignmentDTOSchema>;
+
+// --- Submission & Evaluation ---
+export const SubmissionResponseDTOSchema = z.object({
+  id: z.string().uuid(),
+  submissionId: z.string().uuid(),
+  questionId: z.string().uuid(),
+  responsePayload: z.any(),
+  isCorrect: z.boolean().nullable().optional(),
+  rawScore: z.number().nullable().optional(),
+  normalizedScore: z.number().min(0).max(1).nullable().optional(),
+  teacherFeedback: z.string().optional(),
+  rubricScores: z.record(z.number()).optional(),
+  updatedAt: z.string().datetime(),
+});
+export type SubmissionResponseDTO = z.infer<typeof SubmissionResponseDTOSchema>;
+
+export const SubmissionDTOSchema = z.object({
+  id: z.string().uuid(),
+  assignmentId: z.string().uuid(),
+  assessmentId: z.string().uuid(),
+  assessmentTitle: z.string(),
+  learnerId: z.string().uuid(),
+  learnerName: z.string(),
+  learnerLevel: z.nativeEnum(CEFRLevel).optional(),
+  classId: z.string().uuid().optional(),
+  className: z.string().optional(),
+  status: z.nativeEnum(SubmissionStatus),
+  startedAt: z.string().datetime(),
+  submittedAt: z.string().datetime().nullable().optional(),
+  evaluatedAt: z.string().datetime().nullable().optional(),
+  evaluatorId: z.string().uuid().nullable().optional(),
+  evaluatorType: z.nativeEnum(EvaluatorType).default(EvaluatorType.AUTO),
+  overallScore: z.number().nullable().optional(),
+  maxPossibleScore: z.number().default(100),
+  teacherFeedback: z.string().optional(),
+  responses: z.array(SubmissionResponseDTOSchema).default([]),
+});
+export type SubmissionDTO = z.infer<typeof SubmissionDTOSchema>;
+
+export const SaveResponseRequestSchema = z.object({
+  questionId: z.string().uuid(),
+  responsePayload: z.any(),
+});
+export type SaveResponseRequest = z.infer<typeof SaveResponseRequestSchema>;
+
+export const SubmitAssessmentRequestSchema = z.object({
+  submissionId: z.string().uuid(),
+  answers: z.array(
+    z.object({
+      questionId: z.string().uuid(),
+      responsePayload: z.any(),
+    })
+  ),
+});
+export type SubmitAssessmentRequest = z.infer<typeof SubmitAssessmentRequestSchema>;
+
+export const EvaluateSubmissionRequestSchema = z.object({
+  submissionId: z.string().uuid(),
+  responses: z.array(
+    z.object({
+      questionId: z.string().uuid(),
+      isCorrect: z.boolean().optional(),
+      rawScore: z.number().min(0),
+      maxScore: z.number().positive(),
+      rubricScores: z.record(z.number()).optional(),
+      teacherFeedback: z.string().optional(),
+    })
+  ),
+  overallTeacherFeedback: z.string().optional(),
+});
+export type EvaluateSubmissionRequest = z.infer<typeof EvaluateSubmissionRequestSchema>;
+
+// --- Learning Evidence ---
+export const LearningEvidenceDTOSchema = z.object({
+  id: z.string().uuid(),
+  learnerId: z.string().uuid(),
+  learnerName: z.string().optional(),
+  skillId: z.string().uuid(),
+  skillName: z.string(),
+  skillArea: z.nativeEnum(SkillArea),
+  questionId: z.string().uuid().nullable().optional(),
+  questionPrompt: z.string().optional(),
+  assessmentId: z.string().uuid().nullable().optional(),
+  assessmentTitle: z.string().optional(),
+  submissionId: z.string().uuid().nullable().optional(),
+  evidenceType: z.nativeEnum(EvidenceType),
+  evaluatorType: z.nativeEnum(EvaluatorType),
+  observedValue: z.string().optional(),
+  normalizedScore: z.number().min(0).max(1),
+  difficulty: z.nativeEnum(Difficulty),
+  weight: z.number().positive().default(1.0),
+  observedAt: z.string().datetime(),
+  isCorrected: z.boolean().default(false),
+  correctionNotes: z.string().optional(),
+  sourceMaterialId: z.string().uuid().nullable().optional(),
+  sourceMaterialTitle: z.string().optional(),
+});
+export type LearningEvidenceDTO = z.infer<typeof LearningEvidenceDTOSchema>;
+
+export const EvidenceFilterParamsSchema = z.object({
+  learnerId: z.string().uuid(),
+  skillId: z.string().uuid().optional(),
+  assessmentId: z.string().uuid().optional(),
+  limit: z.number().int().positive().default(20),
+});
+export type EvidenceFilterParams = z.infer<typeof EvidenceFilterParamsSchema>;
+
+export const EvidenceCorrectionRequestSchema = z.object({
+  evidenceId: z.string().uuid(),
+  correctedNormalizedScore: z.number().min(0).max(1),
+  reason: z.string().min(3),
+});
+export type EvidenceCorrectionRequest = z.infer<typeof EvidenceCorrectionRequestSchema>;
+
+// --- Learner State ---
+export type LearnerSkillDetailDTO = {
+  skillId: string;
+  skillName: string;
+  skillCode: string;
+  skillArea: SkillArea;
+  parentSkillId?: string | null;
+  score: number | null;
+  scorePercentage: number | null;
+  confidence: ConfidenceLevel;
+  evidenceCount: number;
+  lastEvidenceAt?: string | null;
+  subskills?: LearnerSkillDetailDTO[];
+};
+
+export const LearnerSkillDetailDTOSchema: z.ZodType<LearnerSkillDetailDTO> = z.lazy(() =>
+  z.object({
+    skillId: z.string().uuid(),
+    skillName: z.string(),
+    skillCode: z.string(),
+    skillArea: z.nativeEnum(SkillArea),
+    parentSkillId: z.string().uuid().nullable().optional(),
+    score: z.number().min(0).max(1).nullable(),
+    scorePercentage: z.number().min(0).max(100).nullable(),
+    confidence: z.nativeEnum(ConfidenceLevel),
+    evidenceCount: z.number().int().nonnegative(),
+    lastEvidenceAt: z.string().datetime().nullable().optional(),
+    subskills: z.array(LearnerSkillDetailDTOSchema).optional(),
+  })
+);
+
+export const ProgressionPointSchema = z.object({
+  timestamp: z.string().datetime(),
+  label: z.string(),
+  scorePercentage: z.number().min(0).max(100),
+  skillId: z.string().uuid().optional(),
+  skillName: z.string().optional(),
+});
+export type ProgressionPoint = z.infer<typeof ProgressionPointSchema>;
+
+export const LearnerStateSummaryDTOSchema = z.object({
+  learnerId: z.string().uuid(),
+  name: z.string(),
+  email: z.string().email(),
+  level: z.nativeEnum(CEFRLevel),
+  overallProficiency: z.number().min(0).max(100).nullable(),
+  overallConfidence: z.nativeEnum(ConfidenceLevel),
+  totalEvidenceCount: z.number().int().nonnegative(),
+  skillsCoverageRatio: z.number().min(0).max(1),
+  skills: z.array(LearnerSkillDetailDTOSchema),
+  progression: z.array(ProgressionPointSchema),
+  currentFocus: z.string().optional(),
+});
+export type LearnerStateSummaryDTO = z.infer<typeof LearnerStateSummaryDTOSchema>;
+
+// --- Recommendation & Teacher Decision ---
+export const CandidateMaterialDTOSchema = z.object({
+  materialId: z.string().uuid(),
+  title: z.string(),
+  type: z.nativeEnum(MaterialType),
+  level: z.nativeEnum(CEFRLevel),
+  estimatedMinutes: z.number().int().positive(),
+  action: z.nativeEnum(RecommendationAction),
+  matchReason: z.string(),
+  tags: z.array(z.string()).default([]),
+  previouslyUsedCount: z.number().int().nonnegative().default(0),
+});
+export type CandidateMaterialDTO = z.infer<typeof CandidateMaterialDTOSchema>;
+
+export const RecommendationDTOSchema = z.object({
+  id: z.string().uuid(),
+  learnerId: z.string().uuid(),
+  learnerName: z.string(),
+  targetSkillId: z.string().uuid(),
+  targetSkillName: z.string(),
+  targetLevel: z.nativeEnum(CEFRLevel),
+  priority: z.enum(['HIGH', 'MEDIUM', 'LOW']).default('MEDIUM'),
+  recommendedActionText: z.string(),
+  rationale: z.array(z.string()),
+  evidenceBasisCount: z.number().int().nonnegative(),
+  learnerCurrentScore: z.number().nullable(),
+  learnerConfidence: z.nativeEnum(ConfidenceLevel),
+  candidates: z.array(CandidateMaterialDTOSchema),
+  decisionStatus: z.nativeEnum(TeacherDecisionStatus).default(TeacherDecisionStatus.PENDING),
+  teacherDecision: z
+    .object({
+      id: z.string().uuid(),
+      decision: z.nativeEnum(TeacherDecisionStatus),
+      teacherNotes: z.string().optional(),
+      selectedMaterialId: z.string().uuid().nullable().optional(),
+      decidedAt: z.string().datetime(),
+    })
+    .nullable()
+    .optional(),
+  createdAt: z.string().datetime(),
+});
+export type RecommendationDTO = z.infer<typeof RecommendationDTOSchema>;
+
+export const TeacherDecisionRequestSchema = z.object({
+  recommendationId: z.string().uuid(),
+  decision: z.enum(['ACCEPT', 'MODIFY', 'REJECT']),
+  teacherNotes: z.string().max(500).optional(),
+  selectedMaterialId: z.string().uuid().optional(),
+  modifiedActionText: z.string().optional(),
+});
+export type TeacherDecisionRequest = z.infer<typeof TeacherDecisionRequestSchema>;
+
+// --- AI Assistance & Review ---
+export const AIGenerateRequestSchema = z.object({
+  sourceMaterialId: z.string().uuid().optional(),
+  taskType: z.enum(['ADAPT_MATERIAL', 'GENERATE_QUESTIONS', 'EXPLAIN_RECOMMENDATION']),
+  targetSkillId: z.string().uuid(),
+  targetLevel: z.nativeEnum(CEFRLevel),
+  instructions: z.string().min(5),
+});
+export type AIGenerateRequest = z.infer<typeof AIGenerateRequestSchema>;
+
+export const AICandidateDTOSchema = z.object({
+  id: z.string().uuid(),
+  taskType: z.string(),
+  provider: z.string(),
+  model: z.string(),
+  promptSummary: z.string(),
+  sourceMaterialId: z.string().uuid().nullable().optional(),
+  sourceMaterialTitle: z.string().optional(),
+  sourceContent: z.string().optional(),
+  candidateContent: z.string(),
+  targetSkillId: z.string().uuid(),
+  targetSkillName: z.string(),
+  targetLevel: z.nativeEnum(CEFRLevel),
+  generatedQuestions: z
+    .array(
+      z.object({
+        prompt: z.string(),
+        options: z.array(z.string()),
+        correctAnswer: z.string(),
+        skillName: z.string(),
+      })
+    )
+    .optional(),
+  vocabularySupport: z
+    .array(
+      z.object({
+        term: z.string(),
+        definition: z.string(),
+      })
+    )
+    .optional(),
+  validation: z.object({
+    isSchemaValid: z.boolean(),
+    skillMappingPresent: z.boolean(),
+    answerKeyProvided: z.boolean(),
+    requiresTeacherApproval: z.boolean().default(true),
+  }),
+  status: z.nativeEnum(AIGenerationStatus),
+  teacherNotes: z.string().optional(),
+  createdAt: z.string().datetime(),
+});
+export type AICandidateDTO = z.infer<typeof AICandidateDTOSchema>;
+
+export const AIReviewDecisionRequestSchema = z.object({
+  generationId: z.string().uuid(),
+  decision: z.enum(['APPROVE', 'REVISE', 'REJECT']),
+  editedContent: z.string().optional(),
+  teacherNotes: z.string().optional(),
+});
+export type AIReviewDecisionRequest = z.infer<typeof AIReviewDecisionRequestSchema>;
+
+// --- Audit & Pilot Metrics ---
+export const AuditEventDTOSchema = z.object({
+  id: z.string().uuid(),
+  actorId: z.string().uuid().nullable().optional(),
+  actorName: z.string().optional(),
+  actorRole: z.string().optional(),
+  action: z.string(),
+  entityType: z.string(),
+  entityId: z.string().optional(),
+  metadata: z.record(z.any()).optional(),
+  timestamp: z.string().datetime(),
+});
+export type AuditEventDTO = z.infer<typeof AuditEventDTOSchema>;
+
+export const PilotMetricsDTOSchema = z.object({
+  totalMaterials: z.number().int().nonnegative(),
+  materialsDirectReuseCount: z.number().int().nonnegative(),
+  materialsAdaptedCount: z.number().int().nonnegative(),
+  materialsNewCreatedCount: z.number().int().nonnegative(),
+  reuseRate: z.number().min(0).max(1),
+  totalSubmissions: z.number().int().nonnegative(),
+  totalEvidenceRecorded: z.number().int().nonnegative(),
+  aiGenerationsTotal: z.number().int().nonnegative(),
+  aiGenerationsApprovedCount: z.number().int().nonnegative(),
+  aiGenerationsApprovedRate: z.number().min(0).max(1),
+  recommendationsTotal: z.number().int().nonnegative(),
+  recommendationsAcceptedCount: z.number().int().nonnegative(),
+  recommendationsAcceptedRate: z.number().min(0).max(1),
+  averageTeacherPrepMinutes: z.number().nonnegative(),
+});
+export type PilotMetricsDTO = z.infer<typeof PilotMetricsDTOSchema>;

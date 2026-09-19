@@ -1,0 +1,17 @@
+{
+  "name": "acorn-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --parallel --filter @acorn/api --filter @acorn/web dev",
+    "dev:api": "pnpm --filter @acorn/api dev",
+    "dev:web": "pnpm --filter @acorn/web dev",
+    "build": "pnpm --filter @acorn/contracts build && pnpm --filter @acorn/ui build && pnpm --filter @acorn/api build && pnpm --filter @acorn/web build",
+    "test": "pnpm --filter @acorn/api test",
+    "db:seed": "pnpm --filter @acorn/api db:seed",
+    "check-structure": "./scripts/check-structure.sh"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}

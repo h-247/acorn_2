@@ -8,3 +8,4 @@ These ADRs summarize the currently frozen design decisions. If implementation ne
 - [ADR-0004 — AI Behind Provider-Independent Adapter](ADR-0004-ai-provider-boundary.md)
 - [ADR-0005 — Teacher-in-the-Loop](ADR-0005-teacher-in-the-loop.md)
 - [ADR-0006 — UI Readability Before Density](ADR-0006-ui-readability-before-density.md)
+- [ADR-0007 — Backend Framework Selection: Fastify + TypeScript + Drizzle ORM](ADR-0007-backend-framework-fastify.md)
