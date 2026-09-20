@@ -88,7 +88,8 @@ Learner State
 Default content strategy:
 
 ```text
-Reuse → Adapt → Generate
+Reuse → Adapt → Generate (AI cloud profile)
+Reuse → Adapt → No Match (Local non-AI profile: provides teacher manual authoring path)
 ```
 
 Recommendation does not equal assignment. Teacher accepts/modifies/rejects.

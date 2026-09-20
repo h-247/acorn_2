@@ -15,9 +15,9 @@ import {
   RecommendationAction,
   TeacherDecisionStatus,
   AIGenerationStatus,
-} from './enums';;
+} from './enums.js';
 
-export * from './enums';;
+export * from './enums.js';
 
 // --- Identity & Auth ---
 export const AuthUserSchema = z.object({
@@ -26,6 +26,7 @@ export const AuthUserSchema = z.object({
   name: z.string(),
   role: z.nativeEnum(UserRole),
   avatarUrl: z.string().optional(),
+  isActive: z.boolean().default(true),
 });
 export type AuthUser = z.infer<typeof AuthUserSchema>;
 
@@ -40,6 +41,30 @@ export const LoginResponseSchema = z.object({
   user: AuthUserSchema,
 });
 export type LoginResponse = z.infer<typeof LoginResponseSchema>;
+
+export const CreateUserRequestSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(6),
+  name: z.string().min(2),
+  role: z.nativeEnum(UserRole),
+  avatarUrl: z.string().optional(),
+  isActive: z.boolean().default(true),
+});
+export type CreateUserRequest = z.infer<typeof CreateUserRequestSchema>;
+
+export const UpdateUserRequestSchema = z.object({
+  name: z.string().min(2).optional(),
+  email: z.string().email().optional(),
+  role: z.nativeEnum(UserRole).optional(),
+  isActive: z.boolean().optional(),
+  avatarUrl: z.string().optional(),
+});
+export type UpdateUserRequest = z.infer<typeof UpdateUserRequestSchema>;
+
+export const ResetPasswordRequestSchema = z.object({
+  newPassword: z.string().min(6),
+});
+export type ResetPasswordRequest = z.infer<typeof ResetPasswordRequestSchema>;
 
 // --- Taxonomy & Skills ---
 export const SkillNodeSchema = z.object({
@@ -121,6 +146,10 @@ export const MaterialDTOSchema = z.object({
   primarySkillId: z.string().uuid(),
   primarySkillName: z.string(),
   level: z.nativeEnum(CEFRLevel),
+  difficulty: z.nativeEnum(Difficulty).default(Difficulty.MEDIUM),
+  topic: z.string().optional(),
+  courseId: z.string().uuid().nullable().optional(),
+  courseName: z.string().optional(),
   estimatedMinutes: z.number().int().positive().default(10),
   source: z.string(),
   status: z.nativeEnum(MaterialStatus),
@@ -141,6 +170,9 @@ export const CreateMaterialRequestSchema = z.object({
   type: z.nativeEnum(MaterialType),
   primarySkillId: z.string().uuid(),
   level: z.nativeEnum(CEFRLevel),
+  difficulty: z.nativeEnum(Difficulty).default(Difficulty.MEDIUM).optional(),
+  topic: z.string().optional(),
+  courseId: z.string().uuid().optional(),
   estimatedMinutes: z.number().int().positive().default(10),
   content: z.string().min(1),
   summary: z.string().optional(),
@@ -154,6 +186,9 @@ export const AdaptMaterialRequestSchema = z.object({
   title: z.string().min(3),
   targetSkillId: z.string().uuid().optional(),
   targetLevel: z.nativeEnum(CEFRLevel).optional(),
+  difficulty: z.nativeEnum(Difficulty).optional(),
+  topic: z.string().optional(),
+  courseId: z.string().uuid().optional(),
   contentModifications: z.string().min(1),
   adaptationReason: z.string().optional(),
   tags: z.array(z.string()).default([]),
@@ -163,7 +198,7 @@ export type AdaptMaterialRequest = z.infer<typeof AdaptMaterialRequestSchema>;
 // --- Question & Assessment ---
 export const QuestionSkillMappingSchema = z.object({
   skillId: z.string().uuid(),
-  skillName: z.string(),
+  skillName: z.string().optional(),
   role: z.enum(['PRIMARY', 'SECONDARY']).default('PRIMARY'),
   weight: z.number().min(0).max(1).default(1.0),
 });
@@ -262,6 +297,18 @@ export const AssignAssessmentRequestSchema = z.object({
 });
 export type AssignAssessmentRequest = z.infer<typeof AssignAssessmentRequestSchema>;
 
+export const AssignNextActivityRequestSchema = z.object({
+  learnerId: z.string().uuid(),
+  classId: z.string().uuid().optional(),
+  assessmentId: z.string().uuid().optional(),
+  materialId: z.string().uuid().optional(),
+  activityTitle: z.string().min(1).optional(),
+  dueAt: z.string().datetime().optional(),
+  notes: z.string().optional(),
+  instructions: z.string().optional(),
+});
+export type AssignNextActivityRequest = z.infer<typeof AssignNextActivityRequestSchema>;
+
 export const AssignmentDTOSchema = z.object({
   id: z.string().uuid(),
   assessmentId: z.string().uuid(),
@@ -310,6 +357,11 @@ export const SubmissionDTOSchema = z.object({
   overallScore: z.number().nullable().optional(),
   maxPossibleScore: z.number().default(100),
   teacherFeedback: z.string().optional(),
+  dueAt: z.string().datetime().nullable().optional(),
+  timeLimitMinutes: z.number().int().positive().nullable().optional(),
+  assessmentInstructions: z.string().nullable().optional(),
+  isLate: z.boolean().default(false),
+  lateMinutes: z.number().int().nonnegative().default(0),
   responses: z.array(SubmissionResponseDTOSchema).default([]),
 });
 export type SubmissionDTO = z.infer<typeof SubmissionDTOSchema>;
@@ -497,14 +549,6 @@ export const TeacherDecisionRequestSchema = z.object({
 export type TeacherDecisionRequest = z.infer<typeof TeacherDecisionRequestSchema>;
 
 // --- AI Assistance & Review ---
-export const AIGenerateRequestSchema = z.object({
-  sourceMaterialId: z.string().uuid().optional(),
-  taskType: z.enum(['ADAPT_MATERIAL', 'GENERATE_QUESTIONS', 'EXPLAIN_RECOMMENDATION']),
-  targetSkillId: z.string().uuid(),
-  targetLevel: z.nativeEnum(CEFRLevel),
-  instructions: z.string().min(5),
-});
-export type AIGenerateRequest = z.infer<typeof AIGenerateRequestSchema>;
 
 export const AICandidateDTOSchema = z.object({
   id: z.string().uuid(),
@@ -579,9 +623,6 @@ export const PilotMetricsDTOSchema = z.object({
   reuseRate: z.number().min(0).max(1),
   totalSubmissions: z.number().int().nonnegative(),
   totalEvidenceRecorded: z.number().int().nonnegative(),
-  aiGenerationsTotal: z.number().int().nonnegative(),
-  aiGenerationsApprovedCount: z.number().int().nonnegative(),
-  aiGenerationsApprovedRate: z.number().min(0).max(1),
   recommendationsTotal: z.number().int().nonnegative(),
   recommendationsAcceptedCount: z.number().int().nonnegative(),
   recommendationsAcceptedRate: z.number().min(0).max(1),

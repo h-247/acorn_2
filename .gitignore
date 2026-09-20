@@ -29,3 +29,12 @@ coverage/
 .local-data/
 postgres-data/
 minio-data/
+
+# playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# local dev logs
+*.log

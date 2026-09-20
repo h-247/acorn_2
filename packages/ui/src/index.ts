@@ -18,6 +18,7 @@ export * from './patterns/EntityHeader';;
 export * from './patterns/MetricCard';;
 export * from './patterns/SearchFilterBar';;
 export * from './patterns/EmptyState';;
+export * from './patterns/ErrorState';;
 export * from './patterns/ProgressTrend';;
 export * from './patterns/DistributionChart';;
 export * from './patterns/ProvenanceLineage';;

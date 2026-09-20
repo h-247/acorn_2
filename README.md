@@ -16,64 +16,112 @@ Material
 → Learner State
 → Recommendation
 → Teacher Decision
-→ Reuse / Adapt / Generate
+→ Reuse / Adapt
 → Next Learning Activity
 ```
 
-## MVP architecture
+## Non-AI Local Profile Architecture
 
-- **Frontend:** Next.js + TypeScript
-- **Backend:** modular monolith; framework intentionally not frozen in this bootstrap
-- **Database:** PostgreSQL
-- **Object storage:** S3-compatible (`R2` cloud, `MinIO` on-prem/local)
-- **AI:** provider-independent adapter
-- **Deployment:** local → low-cost cloud pilot → on-prem without domain rewrite
-- **Repository:** monorepo
+Acorn runs 100% locally with zero paid cloud services or artificial AI mockups:
 
-Cloudflare is a **deployment optimization, not the architecture**. D1 is not the canonical Acorn database.
+- **Frontend:** Next.js 14 App Router + Tailwind CSS (`apps/web`) across 19 non-AI screens
+- **Backend:** Fastify modular monolith (`apps/api`) with Zod contract validation and scoped RBAC
+- **Database:** PostgreSQL 16 (`acorn-postgres` container on port 5435) with Drizzle ORM
+- **Object Storage:** SeaweedFS S3-compatible storage (`acorn-seaweedfs` container on port 8333)
+- **Authentication:** Password hashing via `scrypt`, signed JWT tokens, and strict role scoping (`TEACHER`, `STUDENT`, `ADMIN`, `ACADEMIC_MANAGER`)
+- **Recommendation Engine:** Deterministic rule engine grounded in learner evidence (`REUSE`, `ADAPT`, `NO_MATCH`)
+- **Grading & Evidence:** Answer-key MCQ auto-grading and teacher rubric evaluation generating idempotent learning evidence
 
-## Repository map
+## Repository Map
 
 ```text
 acorn/
 ├── apps/
-│   ├── web/                    # Next.js application
-│   └── api/                    # modular-monolith backend
+│   ├── web/                    # Next.js 14 frontend (19 non-AI screens)
+│   └── api/                    # Fastify modular monolith backend
 ├── packages/
-│   ├── ui/                     # Acorn UI system
-│   ├── contracts/              # cross-boundary DTO/schema contracts
-│   └── config/                 # shared tooling config
+│   ├── ui/                     # Acorn UI design system & components
+│   ├── contracts/              # Shared Zod DTO contracts & enums
+│   └── config/                 # Tooling configuration (ESLint, TS)
 ├── infrastructure/
-│   ├── docker/
+│   ├── docker/                 # SeaweedFS S3 config & scripts
 │   └── deployments/
 ├── docs/
-│   ├── canonical/              # versioned product and technical specification
-│   ├── adr/                    # frozen decisions
-│   ├── ui/                     # screen inventory + 20 mockups
-│   ├── setup/
+│   ├── canonical/              # Versioned product and technical specification
+│   ├── adr/                    # Architecture Decision Records
+│   ├── ui/                     # Screen inventory (19 non-AI screens)
+│   ├── setup/                  # Local development & setup guides
 │   └── evaluation/
-└── compose.dev.yml             # PostgreSQL + MinIO local infra
+└── compose.dev.yml             # PostgreSQL (5435) + SeaweedFS (8333/9333) local infra
 ```
 
-## Start here
+## Quick Start (Local Development)
 
-1. Read [`docs/canonical/00-overview.md`](docs/canonical/00-overview.md).
-2. Read [`docs/adr/README.md`](docs/adr/README.md) before changing architectural decisions.
-3. Review [`docs/ui/screen-inventory.md`](docs/ui/screen-inventory.md) and [`docs/ui/mockups/README.md`](docs/ui/mockups/README.md) before UI implementation.
-4. Copy `.env.example` to `.env`, then run `make infra-up`.
-5. Choose and document the backend framework before bootstrapping `apps/api`.
+### 1. Start Local Infrastructure
 
-## Core invariants
+```powershell
+# Copy environment file
+Copy-Item .env.example .env
 
-- Learning evidence is structured and traceable.
-- Learner state is derived and recomputable from retained evidence.
-- AI output is never academic truth by itself.
-- Teacher-in-the-loop is mandatory for recommendation/content approval.
-- Material provenance must survive reuse/adaptation.
-- Content strategy is **Reuse → Adapt → Generate**.
+# Start PostgreSQL and SeaweedFS containers
+docker compose -f compose.dev.yml up -d
+```
+
+### 2. Install & Seed Database
+
+```powershell
+# Install workspace dependencies
+pnpm install
+
+# Apply database migrations and seed sample data
+pnpm --filter @acorn/api db:migrate
+pnpm --filter @acorn/api db:seed
+```
+
+### 3. Run Applications
+
+```powershell
+# Start API (http://localhost:4000)
+pnpm --filter @acorn/api dev
+
+# Start Web (http://localhost:3000)
+pnpm --filter @acorn/web dev
+```
+
+### 4. Run Verification Suite
+
+```powershell
+# Run all tests (unit + integration)
+pnpm test
+
+# Build all packages
+pnpm build
+
+# Lint frontend web application
+pnpm --filter @acorn/web lint
+```
+
+## Demo Accounts
+
+| Role | Email | Password |
+| :--- | :--- | :--- |
+| **Teacher** | `taylor@acorn.edu` | `password123` |
+| **Student** | `emma.nguyen@student.acorn.edu` (or `emma@acorn.edu`) | `password123` |
+| **Admin** | `admin@acorn.edu` | `admin123` |
+
+## Core Invariants
+
+- Learning evidence is structured, traceable, and idempotent.
+- Learner state is derived and recomputable from retained evidence (`recent-N = 20`).
+- Content strategy is **Reuse → Adapt → Author New Material** (`NO_MATCH`).
+- Teacher-in-the-loop is mandatory for recommendation decisions.
+- Material provenance survives reuse and adaptation.
 - `NO_DATA` is not low performance.
-- UI is **information-rich, visually relaxed**; never shrink typography to increase density.
+- UI is **information-rich, visually relaxed**.
 
-## Canonical documentation
+## Canonical Documentation
 
-The versioned Markdown under `docs/canonical/` is the canonical product and technical specification for this repository. Architectural decisions are recorded in `docs/adr/`; update both when a frozen design decision changes.
+- Local Setup Guide: [`docs/setup/local-development.md`](docs/setup/local-development.md)
+- Screen Inventory: [`docs/ui/screen-inventory.md`](docs/ui/screen-inventory.md)
+- Canonical Specifications: [`docs/canonical/`](docs/canonical/)
+- Architecture Decision Records: [`docs/adr/`](docs/adr/)

@@ -23,9 +23,8 @@ Student navigation is simpler and should not expose teacher/admin machinery.
 | A5 | Learner Profile | Where is this learner now and how confident is the evidence? |
 | A6 | Evidence Explorer | Why does the learner state have this value? |
 | A7 | Recommendation Workspace | What should the teacher consider doing next? |
-| A8 | AI Content Review | What did AI create/change, and should the teacher approve it? |
 
-Batch A establishes the Acorn UI grammar: list/detail, authoring workspace, evidence traceability, recommendation decision support and AI review semantics.
+Batch A establishes the Acorn UI grammar: list/detail, authoring workspace, evidence traceability, and deterministic rule-based recommendation decision support. (A8 AI Content Review has been removed in the non-AI local architecture).
 
 ## Batch B — Operational workflow
 
@@ -51,7 +50,7 @@ Batch A establishes the Acorn UI grammar: list/detail, authoring workspace, evid
 
 ## Page vs drawer vs modal
 
-**Full page/workspace:** material authoring/adaptation, question editor, assessment builder, submission review, learner profile, evidence explorer, recommendation, AI review.
+**Full page/workspace:** material authoring/adaptation, question editor, assessment builder, submission review, learner profile, evidence explorer, recommendation workspace.
 
 **Drawer:** assign assessment, quick material/learner/evidence detail, lightweight metadata edit.
 
@@ -59,7 +58,6 @@ Batch A establishes the Acorn UI grammar: list/detail, authoring workspace, evid
 
 ## Cross-screen semantics
 
-- `AI-generated` describes **origin**, not approval.
 - `Approved` describes governance state.
 - State/recommendation views must provide a path to evidence.
 - `Accept recommendation` does not auto-assign an activity.

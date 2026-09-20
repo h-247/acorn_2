@@ -8,7 +8,7 @@ import type { RecommendationDTO } from '@acorn/contracts';
 export interface RecommendationPanelProps {
   recommendation: RecommendationDTO;
   onDecision: (decision: 'ACCEPT' | 'MODIFY' | 'REJECT', notes?: string) => void;
-  onCandidateAction: (action: 'REUSE' | 'ADAPT' | 'GENERATE', materialId: string) => void;
+  onCandidateAction: (action: 'REUSE' | 'ADAPT' | 'NO_MATCH', materialId: string) => void;
 }
 
 export const RecommendationPanel: React.FC<RecommendationPanelProps> = ({
@@ -48,11 +48,11 @@ export const RecommendationPanel: React.FC<RecommendationPanelProps> = ({
           </div>
         </div>
 
-        {/* Candidate Materials Strategy: Reuse -> Adapt -> Generate */}
+        {/* Candidate Materials Strategy: Reuse -> Adapt -> No Match */}
         <div>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-base font-bold text-[#082051]">
-              Candidate Materials (Reuse → Adapt → Generate)
+              Candidate Materials (Reuse → Adapt)
             </h3>
             <span className="text-xs text-[#656C79]">
               {recommendation.candidates.length} options ready

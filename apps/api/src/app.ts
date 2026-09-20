@@ -1,7 +1,9 @@
 import fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
 import { ZodError } from 'zod';
-import { AppError } from './shared/errors.js';
+import { AppError, ForbiddenError } from './shared/errors.js';
+import { config } from './shared/config.js';
 import { identityPlugin } from './modules/identity/identity.plugin.js';
 import { coursePlugin } from './modules/course/course.plugin.js';
 import { taxonomyPlugin } from './modules/taxonomy/taxonomy.plugin.js';
@@ -11,7 +13,6 @@ import { submissionPlugin } from './modules/submission/submission.plugin.js';
 import { evidencePlugin } from './modules/evidence/evidence.plugin.js';
 import { learnerStatePlugin } from './modules/learner-state/learner-state.plugin.js';
 import { recommendationPlugin } from './modules/recommendation/recommendation.plugin.js';
-import { aiPlugin } from './modules/ai/ai.plugin.js';
 import { auditPlugin } from './modules/audit/audit.plugin.js';
 
 export function buildApp(): FastifyInstance {
@@ -20,8 +21,49 @@ export function buildApp(): FastifyInstance {
   });
 
   app.register(cors, {
-    origin: true,
+    origin: (origin, cb) => {
+      // Deny CORS allowance if no Origin header provided
+      if (!origin) {
+        cb(null, false);
+        return;
+      }
+      // Only configured WEB_ORIGIN receives credentialed CORS allowance
+      if (origin === config.webOrigin) {
+        cb(null, true);
+        return;
+      }
+      cb(null, false);
+    },
+    credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  });
+
+  // Reject cross-origin unsafe mutations using cookie authentication
+  app.addHook('preHandler', async (request) => {
+    const method = request.method.toUpperCase();
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+      const rawOrigin = request.headers.origin;
+      const origin = Array.isArray(rawOrigin) ? rawOrigin[0] : rawOrigin;
+      if (origin && origin !== config.webOrigin) {
+        const authHeader = request.headers.authorization;
+        const hasBearer = authHeader && authHeader.startsWith('Bearer ');
+        if (!hasBearer && request.headers.cookie) {
+          const cookies = request.headers.cookie.split(';');
+          for (const c of cookies) {
+            const [name, val] = c.trim().split('=');
+            if (name === 'acorn_token' && val) {
+              throw new ForbiddenError('Cross-origin mutation forbidden');
+            }
+          }
+        }
+      }
+    }
+  });
+
+  app.register(multipart, {
+    limits: {
+      fileSize: 50 * 1024 * 1024, // 50 MB
+    },
   });
 
   // Health check
@@ -37,7 +79,6 @@ export function buildApp(): FastifyInstance {
   app.register(evidencePlugin, { prefix: '/api/evidence' });
   app.register(learnerStatePlugin, { prefix: '/api' });
   app.register(recommendationPlugin, { prefix: '/api/recommendations' });
-  app.register(aiPlugin, { prefix: '/api/ai' });
   app.register(auditPlugin, { prefix: '/api/audit' });
 
   // Central error handler
@@ -53,6 +94,13 @@ export function buildApp(): FastifyInstance {
     if (error instanceof AppError) {
       return reply.status(error.statusCode).send({
         code: error.code,
+        message: error.message,
+      });
+    }
+
+    if ((error as any).statusCode && (error as any).statusCode >= 400 && (error as any).statusCode < 500) {
+      return reply.status((error as any).statusCode).send({
+        code: (error as any).code || 'CLIENT_ERROR',
         message: error.message,
       });
     }

@@ -20,29 +20,45 @@ export default function CreateMaterialPage() {
   const [type, setType] = useState('ARTICLE');
   const [skillId, setSkillId] = useState('66666666-6666-6666-6666-666666666601');
   const [level, setLevel] = useState('B1');
+  const [difficulty, setDifficulty] = useState('INTERMEDIATE');
+  const [topic, setTopic] = useState('');
+  const [courseId, setCourseId] = useState('');
+  const [tagsInput, setTagsInput] = useState('ielts, academic');
   const [estimatedMinutes, setEstimatedMinutes] = useState(10);
   const [content, setContent] = useState('');
   const [summary, setSummary] = useState('');
+  const [courses, setCourses] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
+
+  React.useEffect(() => {
+    api.getCourses().then((c) => setCourses(c || [])).catch(() => {});
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
+      const tags = tagsInput
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean);
       const res = await api.createMaterial({
         title,
         type,
         primarySkillId: skillId,
         level,
+        difficulty,
+        topic: topic || undefined,
+        courseId: courseId || undefined,
         estimatedMinutes: Number(estimatedMinutes),
         content,
         summary,
         source: 'Teacher Library',
-        tags: ['custom', 'english'],
+        tags: tags.length > 0 ? tags : ['custom', 'english'],
       });
       router.push(`/materials/${res.id}`);
-    } catch (err) {
-      alert('Failed to create material');
+    } catch (err: any) {
+      alert('Failed to create material: ' + (err.message || 'Error'));
       setSaving(false);
     }
   };
@@ -81,6 +97,21 @@ export default function CreateMaterialPage() {
                 required
               />
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Input
+                  label="Topic / Subject"
+                  placeholder="e.g. Environmental Science, Urban Planning"
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                />
+                <Input
+                  label="Tags (comma-separated)"
+                  placeholder="e.g. ielts, reading, urban-farming"
+                  value={tagsInput}
+                  onChange={(e) => setTagsInput(e.target.value)}
+                />
+              </div>
+
               <Textarea
                 label="Passage / Main Content"
                 placeholder="Write or paste your article, transcript, or instructions here..."
@@ -103,6 +134,27 @@ export default function CreateMaterialPage() {
           <div className="space-y-4">
             <Card className="p-5 border-gray-200/80 space-y-4">
               <h3 className="text-sm font-bold text-[#082051]">Academic Properties</h3>
+
+              <Select
+                label="Difficulty Level"
+                value={difficulty}
+                onChange={(e) => setDifficulty(e.target.value)}
+                options={[
+                  { label: 'Beginner', value: 'BEGINNER' },
+                  { label: 'Intermediate', value: 'INTERMEDIATE' },
+                  { label: 'Advanced', value: 'ADVANCED' },
+                ]}
+              />
+
+              <Select
+                label="Associated Course (Optional)"
+                value={courseId}
+                onChange={(e) => setCourseId(e.target.value)}
+                options={[
+                  { label: 'None (Global Center Library)', value: '' },
+                  ...courses.map((c) => ({ label: `${c.code} - ${c.name}`, value: c.id })),
+                ]}
+              />
 
               <Select
                 label="Material Type"

@@ -1,51 +1,28 @@
-import { getInitialSeedData } from './seed-data.js';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import pg from 'pg';
+import * as schema from './schema.js';
+import { config } from '../../shared/config.js';
 
-export interface DatabaseStore {
-  users: any[];
-  courses: any[];
-  classes: any[];
-  classEnrollments: any[];
-  skills: any[];
-  materials: any[];
-  materialVersions: any[];
-  materialProvenance: any[];
-  questions: any[];
-  questionSkills: any[];
-  assessments: any[];
-  assessmentItems: any[];
-  assignments: any[];
-  submissions: any[];
-  submissionResponses: any[];
-  learningEvidence: any[];
-  learnerSkillStates: any[];
-  recommendations: any[];
-  recommendationCandidates: any[];
-  teacherDecisions: any[];
-  aiGenerations: any[];
-  auditEvents: any[];
-}
+const { Pool } = pg;
 
-class InMemoryDatabase {
-  private store: DatabaseStore;
+export const pool = new Pool({
+  connectionString: config.databaseUrl,
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
+});
 
-  constructor() {
-    this.store = {
-      ...getInitialSeedData(),
-      materialProvenance: [],
-    };
-  }
+export const db = drizzle(pool, { schema });
 
-  getStore() {
-    return this.store;
-  }
-
-  reset() {
-    this.store = {
-      ...getInitialSeedData(),
-      materialProvenance: [],
-    };
+// Helper to check DB connectivity
+export async function checkDatabaseConnection(): Promise<boolean> {
+  try {
+    const client = await pool.connect();
+    await client.query('SELECT 1');
+    client.release();
+    return true;
+  } catch (err) {
+    console.error('Failed to connect to PostgreSQL:', err);
+    return false;
   }
 }
-
-// Global database instance
-export const db = new InMemoryDatabase();

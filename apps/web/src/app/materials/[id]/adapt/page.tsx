@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   AppShell,
@@ -10,8 +10,9 @@ import {
   Input,
   Textarea,
   Select,
+  ErrorState,
 } from '@acorn/ui';
-import { Sparkles, ArrowLeft, Check } from 'lucide-react';
+import { Sparkles, ArrowLeft, Check, AlertCircle } from 'lucide-react';
 import { api } from '@/lib/api';
 
 export default function MaterialAdaptationPage({ params }: { params: { id: string } }) {
@@ -22,20 +23,34 @@ export default function MaterialAdaptationPage({ params }: { params: { id: strin
   const [content, setContent] = useState('');
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    api.getMaterial(params.id).then((m) => {
+  const loadMaterial = useCallback(async () => {
+    setLoading(true);
+    setErrorMessage(null);
+    try {
+      const m = await api.getMaterial(params.id);
       setSourceMaterial(m);
       setTitle(`${m.title} (Adapted for ${m.level})`);
       setTargetLevel(m.level);
       setContent(m.content);
       setReason('Adapted for targeted vocabulary support and comprehension.');
-    }).catch(() => {});
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to load source material for adaptation');
+    } finally {
+      setLoading(false);
+    }
   }, [params.id]);
+
+  useEffect(() => {
+    loadMaterial();
+  }, [loadMaterial]);
 
   const handleSave = async () => {
     if (!sourceMaterial) return;
     setSaving(true);
+    setErrorMessage(null);
     try {
       const adapted = await api.adaptMaterial(sourceMaterial.id, {
         sourceMaterialId: sourceMaterial.id,
@@ -46,16 +61,30 @@ export default function MaterialAdaptationPage({ params }: { params: { id: strin
         tags: ['adapted', 'ielts'],
       });
       router.push(`/materials/${adapted.id}`);
-    } catch (err) {
-      alert('Failed to save adaptation');
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to save adaptation');
       setSaving(false);
     }
   };
 
-  if (!sourceMaterial) {
+  if (loading) {
     return (
-      <AppShell currentPath="/materials">
-        <div className="p-8 text-center text-[#656C79]">Loading adaptation workspace...</div>
+      <AppShell currentPath="/materials" roleMode="TEACHER">
+        <div className="p-12 text-center text-sm text-[#656C79]">Loading adaptation workspace...</div>
+      </AppShell>
+    );
+  }
+
+  if (errorMessage && !sourceMaterial) {
+    return (
+      <AppShell currentPath="/materials" roleMode="TEACHER">
+        <div className="p-6 max-w-xl mx-auto">
+          <ErrorState
+            title="Unable to load material for adaptation"
+            message={errorMessage}
+            onRetry={loadMaterial}
+          />
+        </div>
       </AppShell>
     );
   }
@@ -83,6 +112,13 @@ export default function MaterialAdaptationPage({ params }: { params: { id: strin
             </Button>
           }
         />
+
+        {errorMessage && (
+          <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-xs text-red-700 font-medium">
+            <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+        )}
 
         {/* Adaptation Controls */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

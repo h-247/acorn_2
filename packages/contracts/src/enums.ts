@@ -1,6 +1,5 @@
 export const UserRole = {
   ADMIN: 'ADMIN',
-  ACADEMIC_MANAGER: 'ACADEMIC_MANAGER',
   TEACHER: 'TEACHER',
   STUDENT: 'STUDENT',
 } as const;
@@ -87,9 +86,7 @@ export type EvidenceType = (typeof EvidenceType)[keyof typeof EvidenceType];
 
 export const EvaluatorType = {
   AUTO: 'AUTO',
-  AI: 'AI',
   TEACHER: 'TEACHER',
-  AI_PLUS_TEACHER: 'AI_PLUS_TEACHER',
 } as const;
 export type EvaluatorType = (typeof EvaluatorType)[keyof typeof EvaluatorType];
 
@@ -104,7 +101,7 @@ export type ConfidenceLevel = (typeof ConfidenceLevel)[keyof typeof ConfidenceLe
 export const RecommendationAction = {
   REUSE: 'REUSE',
   ADAPT: 'ADAPT',
-  GENERATE: 'GENERATE',
+  NO_MATCH: 'NO_MATCH',
 } as const;
 export type RecommendationAction = (typeof RecommendationAction)[keyof typeof RecommendationAction];
 

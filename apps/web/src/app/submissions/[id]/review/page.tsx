@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   AppShell,
@@ -11,71 +11,264 @@ import {
   Card,
   Textarea,
   Input,
+  ErrorState,
 } from '@acorn/ui';
-import { Check, Sparkles, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { Check, ArrowLeft, CheckCircle2, AlertCircle, Volume2, Mic } from 'lucide-react';
 import { api } from '@/lib/api';
+
+interface RubricDimension {
+  key: string;
+  label: string;
+  max: number;
+}
+
+const WRITING_RUBRIC: RubricDimension[] = [
+  { key: 'taskAchievement', label: 'Task Achievement', max: 25 },
+  { key: 'coherence', label: 'Coherence & Cohesion', max: 25 },
+  { key: 'vocabulary', label: 'Lexical Resource', max: 25 },
+  { key: 'grammar', label: 'Grammatical Accuracy', max: 25 },
+];
+
+const SPEAKING_RUBRIC: RubricDimension[] = [
+  { key: 'fluency', label: 'Fluency & Coherence', max: 25 },
+  { key: 'pronunciation', label: 'Pronunciation', max: 25 },
+  { key: 'vocabulary', label: 'Lexical Resource', max: 25 },
+  { key: 'grammar', label: 'Grammatical Accuracy', max: 25 },
+];
 
 export default function SubmissionReviewPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const [submission, setSubmission] = useState<any | null>(null);
-  const [feedback, setFeedback] = useState('Well done, Emma! You present clear ideas and good examples, especially about transport and air quality.');
-  const [taskScore, setTaskScore] = useState(18);
-  const [coherenceScore, setCoherenceScore] = useState(17);
-  const [vocabScore, setVocabScore] = useState(18);
-  const [grammarScore, setGrammarScore] = useState(19);
+  const [overallFeedback, setOverallFeedback] = useState('');
   const [saving, setSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    api.getSubmission(params.id).then(setSubmission).catch(() => {});
+  // Question evaluations keyed by questionId
+  const [evaluations, setEvaluations] = useState<
+    Record<
+      string,
+      {
+        rawScore: number;
+        maxScore: number;
+        isCorrect?: boolean;
+        rubricScores?: Record<string, number>;
+        teacherFeedback?: string;
+      }
+    >
+  >({});
+
+  // Audio URLs for speaking questions
+  const [audioUrls, setAudioUrls] = useState<Record<string, string>>({});
+  const [audioLoading, setAudioLoading] = useState<Record<string, boolean>>({});
+
+  const loadSubmission = useCallback(async () => {
+    setLoading(true);
+    setErrorMessage(null);
+    try {
+      const sub = await api.getSubmission(params.id);
+      setSubmission(sub);
+      if (sub?.teacherFeedback) {
+        setOverallFeedback(sub.teacherFeedback);
+      }
+
+      // Initialize evaluations for each item
+      const initialEvals: Record<string, any> = {};
+      const items = sub?.items || [];
+
+      for (const item of items) {
+        const qId = item.questionId;
+        const q = item.question;
+        const r = item.response;
+        const maxScore = item.points || (q?.type === 'WRITING' || q?.type === 'SPEAKING' ? 100 : 10);
+
+        if (q?.type === 'WRITING') {
+          const rubric = r?.rubricScores || {
+            taskAchievement: 20,
+            coherence: 20,
+            vocabulary: 20,
+            grammar: 20,
+          };
+          const raw = Object.values(rubric).reduce((a: number, b: any) => a + Number(b), 0);
+          initialEvals[qId] = {
+            rawScore: r?.rawScore ?? raw,
+            maxScore,
+            isCorrect: r?.isCorrect ?? true,
+            rubricScores: rubric,
+            teacherFeedback: r?.teacherFeedback || '',
+          };
+        } else if (q?.type === 'SPEAKING') {
+          const rubric = r?.rubricScores || {
+            fluency: 20,
+            pronunciation: 20,
+            vocabulary: 20,
+            grammar: 20,
+          };
+          const raw = Object.values(rubric).reduce((a: number, b: any) => a + Number(b), 0);
+          initialEvals[qId] = {
+            rawScore: r?.rawScore ?? raw,
+            maxScore,
+            isCorrect: r?.isCorrect ?? true,
+            rubricScores: rubric,
+            teacherFeedback: r?.teacherFeedback || '',
+          };
+        } else {
+          // MCQ or SHORT_ANSWER
+          const isCorrect = r?.isCorrect ?? (r?.rawScore !== undefined ? r.rawScore > 0 : false);
+          initialEvals[qId] = {
+            rawScore: r?.rawScore ?? (isCorrect ? maxScore : 0),
+            maxScore,
+            isCorrect,
+            teacherFeedback: r?.teacherFeedback || '',
+          };
+        }
+      }
+
+      setEvaluations(initialEvals);
+
+      // Fetch audio for speaking questions if available
+      for (const item of items) {
+        if (item.question?.type === 'SPEAKING') {
+          fetchAudio(sub.id, item.questionId);
+        }
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to load submission review');
+    } finally {
+      setLoading(false);
+    }
   }, [params.id]);
 
-  const totalScore = taskScore + coherenceScore + vocabScore + grammarScore;
+  const fetchAudio = async (subId: string, qId: string) => {
+    setAudioLoading((prev) => ({ ...prev, [qId]: true }));
+    try {
+      const res = await api.getSubmissionAudioUrl(subId, qId);
+      const audioSrc = res?.audioUrl || res?.url;
+      if (audioSrc) {
+        setAudioUrls((prev) => ({ ...prev, [qId]: audioSrc }));
+      }
+    } catch (e) {
+      // Audio might not have been recorded or uploaded
+    } finally {
+      setAudioLoading((prev) => ({ ...prev, [qId]: false }));
+    }
+  };
+
+  useEffect(() => {
+    loadSubmission();
+  }, [loadSubmission]);
+
+  // Total raw score and max score calculation
+  const totalRaw = Object.values(evaluations).reduce((acc, curr) => acc + (curr.rawScore || 0), 0);
+  const totalMax = Object.values(evaluations).reduce((acc, curr) => acc + (curr.maxScore || 0), 0);
+  const totalPercentage = totalMax > 0 ? Math.round((totalRaw / totalMax) * 100) : 0;
+
+  const updateRubricScore = (
+    questionId: string,
+    rubricKey: string,
+    val: number,
+    rubricType: 'WRITING' | 'SPEAKING'
+  ) => {
+    setEvaluations((prev) => {
+      const current = prev[questionId] || { rawScore: 0, maxScore: 100 };
+      const currentRubrics = current.rubricScores || {};
+      const newRubrics = { ...currentRubrics, [rubricKey]: val };
+      const newRaw = Object.values(newRubrics).reduce((a, b) => a + Number(b), 0);
+      return {
+        ...prev,
+        [questionId]: {
+          ...current,
+          rubricScores: newRubrics,
+          rawScore: newRaw,
+        },
+      };
+    });
+  };
+
+  const updateRawScore = (questionId: string, score: number) => {
+    setEvaluations((prev) => {
+      const current = prev[questionId] || { rawScore: 0, maxScore: 10 };
+      return {
+        ...prev,
+        [questionId]: {
+          ...current,
+          rawScore: Math.min(current.maxScore, Math.max(0, score)),
+          isCorrect: score >= current.maxScore * 0.7,
+        },
+      };
+    });
+  };
+
+  const updateFeedback = (questionId: string, text: string) => {
+    setEvaluations((prev) => {
+      const current = prev[questionId] || { rawScore: 0, maxScore: 10 };
+      return {
+        ...prev,
+        [questionId]: {
+          ...current,
+          teacherFeedback: text,
+        },
+      };
+    });
+  };
 
   const handleFinalize = async () => {
     if (!submission) return;
     setSaving(true);
+    setErrorMessage(null);
     try {
+      const items = submission.items || [];
+      const responsesPayload = items.map((item: any) => {
+        const qId = item.questionId;
+        const ev = evaluations[qId] || {
+          rawScore: 0,
+          maxScore: item.points || 10,
+        };
+        return {
+          questionId: qId,
+          rawScore: ev.rawScore,
+          maxScore: ev.maxScore,
+          isCorrect: ev.isCorrect,
+          rubricScores: ev.rubricScores,
+          teacherFeedback: ev.teacherFeedback,
+        };
+      });
+
       await api.evaluate(submission.id, {
         submissionId: submission.id,
-        responses: [
-          {
-            questionId: '88888888-8888-8888-8888-888888888805',
-            rawScore: totalScore,
-            maxScore: 100,
-            rubricScores: {
-              taskAchievement: taskScore,
-              coherence: coherenceScore,
-              vocabulary: vocabScore,
-              grammar: grammarScore,
-            },
-            teacherFeedback: feedback,
-          },
-        ],
-        overallTeacherFeedback: feedback,
+        responses: responsesPayload,
+        overallTeacherFeedback: overallFeedback,
       });
-      alert('Evaluation finalized! Learning evidence and learner skill state have been updated.');
       router.push('/submissions');
-    } catch (err) {
-      alert('Failed to finalize evaluation');
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to finalize evaluation');
       setSaving(false);
     }
   };
 
-  if (!submission) {
+  if (loading) {
     return (
-      <AppShell currentPath="/submissions">
-        <div className="p-8 text-center text-[#656C79]">Loading submission review...</div>
+      <AppShell currentPath="/submissions" roleMode="TEACHER">
+        <div className="p-12 text-center text-sm text-[#656C79]">Loading submission review...</div>
       </AppShell>
     );
   }
 
-  const sampleEssay = `Urban farming can be a good solution to some of the environmental problems in cities. I mostly agree with this idea because it brings many benefits, although it cannot solve all the problems.
+  if (errorMessage && !submission) {
+    return (
+      <AppShell currentPath="/submissions" roleMode="TEACHER">
+        <div className="p-6 max-w-xl mx-auto">
+          <ErrorState
+            title="Unable to load submission"
+            message={errorMessage}
+            onRetry={loadSubmission}
+          />
+        </div>
+      </AppShell>
+    );
+  }
 
-First, urban farming helps to reduce the distance that food needs to travel. This means less transport, so there are fewer carbon emissions. For example, if vegetables are grown on rooftops or in community gardens, they can be sold locally and stay fresh. Second, urban farming can improve air quality and make cities greener. Plants absorb carbon dioxide and create cleaner air, and green spaces also make people feel happier.
-
-However, urban farming alone is not enough. The amount of food produced in cities is still small compared to the total demand. It can also be expensive and difficult to maintain, especially in high-rise buildings. Therefore, it should be part of a bigger plan that includes other solutions, such as reducing food waste and using renewable energy.
-
-In conclusion, I believe urban farming is a positive step towards more sustainable cities, but it is not a complete solution. It can help, especially with local food supply and public awareness.`;
+  const items = submission?.items || [];
 
   return (
     <AppShell currentPath="/submissions" roleMode="TEACHER">
@@ -85,8 +278,8 @@ In conclusion, I believe urban farming is a positive step towards more sustainab
             { label: 'Submissions', href: '/submissions' },
             { label: 'Review' },
           ]}
-          title="Submission Review"
-          subtitle="Review learner submissions, evaluate with a rubric, and provide feedback."
+          title="Submission Review & Grading"
+          subtitle="Review answers, listen to spoken responses, adjust auto-grading, and score rubrics."
           actions={
             <Button
               variant="primary"
@@ -100,125 +293,304 @@ In conclusion, I believe urban farming is a positive step towards more sustainab
           }
         />
 
+        {errorMessage && (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center gap-3 text-sm text-red-700">
+            <AlertCircle className="w-5 h-5 shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+        )}
+
         {/* Top Summary Strip */}
         <div className="bg-white rounded-xl border border-gray-200/80 p-4 flex flex-wrap items-center justify-between gap-4">
           <div>
             <span className="text-xs text-[#656C79]">Assessment</span>
-            <div className="text-sm font-bold text-[#082051]">{submission.assessmentTitle}</div>
-            <span className="text-[11px] text-[#5969AB]">Due Mar 12, 2025 • Class: IELTS Foundation A</span>
+            <div className="text-sm font-bold text-[#082051]">{submission?.assessmentTitle}</div>
+            <span className="text-[11px] text-[#5969AB]">
+              Submitted:{' '}
+              {submission?.submittedAt
+                ? new Date(submission.submittedAt).toLocaleDateString()
+                : 'Pending'}
+            </span>
           </div>
 
           <div className="flex items-center gap-6">
             <div>
               <span className="text-xs text-[#656C79]">Learner</span>
-              <div className="text-sm font-bold text-[#082051]">{submission.learnerName}</div>
+              <div className="text-sm font-bold text-[#082051]">{submission?.learnerName}</div>
             </div>
             <div>
-              <span className="text-xs text-[#656C79]">Score</span>
-              <div className="text-lg font-bold text-[#0967F7]">{totalScore} / 100</div>
+              <span className="text-xs text-[#656C79]">Calculated Score</span>
+              <div className="text-lg font-bold text-[#0967F7]">
+                {totalRaw} / {totalMax} ({totalPercentage}%)
+              </div>
+            </div>
+            <div>
+              <span className="text-xs text-[#656C79]">Status</span>
+              <div>
+                <Badge variant={submission?.status === 'EVALUATED' ? 'success' : 'primary'}>
+                  {submission?.status || 'SUBMITTED'}
+                </Badge>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Split Grid: Student Submission vs Rubric Scoring */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left: Student Submission */}
-          <Card className="p-6 border-gray-200/80 space-y-3">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-              <span className="text-xs font-bold text-[#656C79] uppercase tracking-wider">
-                Student Submission (198 words)
-              </span>
-              <span className="text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-medium">
-                On time
-              </span>
-            </div>
-            <div className="prose text-xs text-[#082051] leading-relaxed whitespace-pre-wrap max-h-[480px] overflow-y-auto bg-gray-50/50 p-4 rounded-xl border border-gray-100">
-              {sampleEssay}
-            </div>
-          </Card>
+        {/* Overall Teacher Feedback Card */}
+        <Card className="p-5 border-gray-200/80">
+          <Textarea
+            label="Overall Assessment Feedback"
+            value={overallFeedback}
+            onChange={(e) => setOverallFeedback(e.target.value)}
+            placeholder="Provide comprehensive feedback and learning guidance for the student..."
+            rows={3}
+            className="text-xs"
+          />
+        </Card>
 
-          {/* Right: Rubric Evaluation */}
-          <div className="space-y-4">
-            <Card className="p-6 border-gray-200/80 space-y-4">
-              <h3 className="text-sm font-bold text-[#082051]">Rubric Assessment</h3>
+        {/* Multi-question review list */}
+        <div className="space-y-6">
+          {items.map((item: any, idx: number) => {
+            const q = item.question || {};
+            const r = item.response || {};
+            const qId = item.questionId;
+            const ev = evaluations[qId] || { rawScore: 0, maxScore: item.points || 10 };
+            const audioUrl = audioUrls[qId] || (typeof r.responsePayload === 'object' ? r.responsePayload?.audioUrl : null);
 
-              <div className="space-y-3">
-                <div>
-                  <div className="flex justify-between text-xs font-semibold mb-1">
-                    <span>Task Achievement</span>
-                    <span className="text-[#0967F7]">{taskScore} / 25</span>
+            return (
+              <Card key={qId} className="p-6 border-gray-200/80 space-y-4">
+                {/* Question Header */}
+                <div className="flex items-center justify-between pb-3 border-b border-gray-100 flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold bg-[#0967F7] text-white px-2.5 py-0.5 rounded-md">
+                      Question {idx + 1}
+                    </span>
+                    <Badge variant="default">{q.type || 'QUESTION'}</Badge>
+                    {q.difficulty && <Badge variant="primary">{q.difficulty}</Badge>}
                   </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="25"
-                    value={taskScore}
-                    onChange={(e) => setTaskScore(Number(e.target.value))}
-                    className="w-full"
-                  />
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-[#656C79]">Points:</span>
+                    <span className="text-sm font-bold text-[#082051]">
+                      {ev.rawScore} / {ev.maxScore}
+                    </span>
+                  </div>
                 </div>
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold mb-1">
-                    <span>Coherence & Cohesion</span>
-                    <span className="text-[#0967F7]">{coherenceScore} / 25</span>
+                {/* Stimulus / Passage if any */}
+                {q.passage && (
+                  <div className="p-3 bg-blue-50/50 rounded-lg border border-blue-100 text-xs text-[#082051] whitespace-pre-wrap leading-relaxed">
+                    <span className="font-bold text-[#0967F7] block mb-1">Passage:</span>
+                    {q.passage}
                   </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="25"
-                    value={coherenceScore}
-                    onChange={(e) => setCoherenceScore(Number(e.target.value))}
-                    className="w-full"
-                  />
+                )}
+
+                {/* Prompt */}
+                <div className="text-sm font-semibold text-[#082051]">
+                  {q.prompt}
                 </div>
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold mb-1">
-                    <span>Vocabulary</span>
-                    <span className="text-[#0967F7]">{vocabScore} / 25</span>
+                {/* Question Body & Student Response */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2">
+                  {/* Left Column: Student Answer */}
+                  <div className="space-y-3">
+                    <div className="text-xs font-bold text-[#656C79] uppercase tracking-wider">
+                      Learner Response
+                    </div>
+
+                    {q.type === 'MCQ' && (
+                      <div className="space-y-2">
+                        {q.options?.map((opt: any, optIdx: number) => {
+                          const optionText = typeof opt === 'string' ? opt : opt.text || opt.label;
+                          const isStudentSelected =
+                            r.responsePayload === optionText ||
+                            r.responsePayload === optIdx ||
+                            r.responsePayload?.selectedOption === optionText ||
+                            r.responsePayload?.selectedOption === optIdx;
+                          const isCorrectOpt =
+                            q.correctAnswer === optionText ||
+                            q.correctAnswer === optIdx ||
+                            (typeof q.correctAnswer === 'object' && q.correctAnswer?.text === optionText);
+
+                          let borderClass = 'border-gray-200 bg-white';
+                          if (isStudentSelected && isCorrectOpt) {
+                            borderClass = 'border-emerald-500 bg-emerald-50/60 text-emerald-900';
+                          } else if (isStudentSelected && !isCorrectOpt) {
+                            borderClass = 'border-red-400 bg-red-50/60 text-red-900';
+                          } else if (isCorrectOpt) {
+                            borderClass = 'border-emerald-300 bg-emerald-50/20 text-emerald-800';
+                          }
+
+                          return (
+                            <div
+                              key={optIdx}
+                              className={`p-3 rounded-xl border text-xs flex items-center justify-between ${borderClass}`}
+                            >
+                              <span>{optionText}</span>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {isStudentSelected && (
+                                  <Badge variant={isCorrectOpt ? 'success' : 'danger'}>
+                                    Selected
+                                  </Badge>
+                                )}
+                                {isCorrectOpt && (
+                                  <Badge variant="success">Correct Answer</Badge>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {q.type === 'SHORT_ANSWER' && (
+                      <div className="space-y-2">
+                        <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 text-xs text-[#082051] whitespace-pre-wrap font-sans">
+                          {typeof r.responsePayload === 'string'
+                            ? r.responsePayload
+                            : r.responsePayload?.text || 'No response provided.'}
+                        </div>
+                        {q.correctAnswer && (
+                          <div className="p-2.5 bg-emerald-50/50 rounded-lg border border-emerald-100 text-xs text-emerald-800">
+                            <span className="font-bold">Target Answer / Keywords: </span>
+                            {typeof q.correctAnswer === 'string'
+                              ? q.correctAnswer
+                              : JSON.stringify(q.correctAnswer)}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {q.type === 'WRITING' && (
+                      <div className="space-y-2">
+                        <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 text-xs text-[#082051] whitespace-pre-wrap leading-relaxed max-h-64 overflow-y-auto font-sans">
+                          {typeof r.responsePayload === 'string'
+                            ? r.responsePayload
+                            : r.responsePayload?.text || 'No text submitted.'}
+                        </div>
+                        {typeof r.responsePayload === 'string' && (
+                          <div className="text-[11px] text-[#656C79]">
+                            Word count:{' '}
+                            {r.responsePayload.trim().split(/\s+/).filter(Boolean).length} words
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {q.type === 'SPEAKING' && (
+                      <div className="space-y-3">
+                        <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-3">
+                          <div className="flex items-center gap-2 text-xs font-semibold text-[#082051]">
+                            <Mic className="w-4 h-4 text-[#0967F7]" />
+                            <span>Audio Recording</span>
+                          </div>
+
+                          {audioLoading[qId] ? (
+                            <div className="text-xs text-[#656C79]">Loading audio stream...</div>
+                          ) : audioUrl ? (
+                            <audio controls src={audioUrl} className="w-full h-10" />
+                          ) : (
+                            <div className="text-xs text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200">
+                              No audio stream recording found for this response.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="25"
-                    value={vocabScore}
-                    onChange={(e) => setVocabScore(Number(e.target.value))}
-                    className="w-full"
-                  />
-                </div>
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold mb-1">
-                    <span>Grammar Accuracy</span>
-                    <span className="text-[#0967F7]">{grammarScore} / 25</span>
+                  {/* Right Column: Scoring & Rubrics */}
+                  <div className="space-y-4">
+                    <div className="text-xs font-bold text-[#656C79] uppercase tracking-wider">
+                      Grading & Feedback
+                    </div>
+
+                    {/* Rubric evaluation for Writing / Speaking */}
+                    {(q.type === 'WRITING' || q.type === 'SPEAKING') ? (
+                      <div className="space-y-3 bg-gray-50/50 p-4 rounded-xl border border-gray-100">
+                        {(q.type === 'WRITING' ? WRITING_RUBRIC : SPEAKING_RUBRIC).map((dim) => {
+                          const val = ev.rubricScores?.[dim.key] ?? 20;
+                          return (
+                            <div key={dim.key} className="space-y-1">
+                              <div className="flex justify-between text-xs font-semibold">
+                                <span>{dim.label}</span>
+                                <span className="text-[#0967F7]">{val} / {dim.max}</span>
+                              </div>
+                              <input
+                                type="range"
+                                min="0"
+                                max={dim.max}
+                                value={val}
+                                onChange={(e) =>
+                                  updateRubricScore(
+                                    qId,
+                                    dim.key,
+                                    Number(e.target.value),
+                                    q.type as any
+                                  )
+                                }
+                                className="w-full accent-[#0967F7]"
+                              />
+                            </div>
+                          );
+                        })}
+
+                        <div className="pt-2 flex justify-between items-center text-xs font-bold border-t border-gray-200">
+                          <span>Calculated Raw Score:</span>
+                          <span className="text-sm text-[#0967F7]">
+                            {ev.rawScore} / {ev.maxScore}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Score input for MCQ / Short answer */
+                      <div className="space-y-3 bg-gray-50/50 p-4 rounded-xl border border-gray-100">
+                        <div className="flex items-center gap-3">
+                          <Input
+                            label="Score"
+                            type="number"
+                            min="0"
+                            max={ev.maxScore}
+                            value={ev.rawScore}
+                            onChange={(e) => updateRawScore(qId, Number(e.target.value))}
+                            className="w-24 text-xs"
+                          />
+                          <span className="text-xs text-[#656C79] pt-6">/ {ev.maxScore} points</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs font-medium text-[#082051] flex items-center gap-1.5 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={ev.isCorrect ?? false}
+                              onChange={(e) =>
+                                setEvaluations((prev) => ({
+                                  ...prev,
+                                  [qId]: {
+                                    ...prev[qId],
+                                    isCorrect: e.target.checked,
+                                  },
+                                }))
+                              }
+                              className="rounded accent-[#0967F7]"
+                            />
+                            Mark as Correct
+                          </label>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Question Specific Feedback */}
+                    <Textarea
+                      label="Question Feedback"
+                      value={ev.teacherFeedback || ''}
+                      onChange={(e) => updateFeedback(qId, e.target.value)}
+                      placeholder="Feedback for this specific question..."
+                      rows={2}
+                      className="text-xs"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="25"
-                    value={grammarScore}
-                    onChange={(e) => setGrammarScore(Number(e.target.value))}
-                    className="w-full"
-                  />
                 </div>
-              </div>
-
-              <div className="pt-3 border-t border-gray-100">
-                <Textarea
-                  label="Teacher Feedback"
-                  value={feedback}
-                  onChange={(e) => setFeedback(e.target.value)}
-                  rows={3}
-                  className="text-xs"
-                />
-              </div>
-
-              <div className="pt-2 text-xs text-[#656C79]">
-                <span className="font-semibold text-[#082051]">Contributes to:</span> Writing, Vocabulary, Grammar, Critical thinking.
-              </div>
-            </Card>
-          </div>
+              </Card>
+            );
+          })}
         </div>
       </div>
     </AppShell>

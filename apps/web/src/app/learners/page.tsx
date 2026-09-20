@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   AppShell,
   SearchFilterBar,
@@ -9,6 +9,8 @@ import {
   Card,
   Avatar,
   ProgressBar,
+  ErrorState,
+  EmptyState,
 } from '@acorn/ui';
 import { Users, ArrowRight } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -16,10 +18,25 @@ import { api } from '@/lib/api';
 export default function LearnerDirectoryPage() {
   const [learners, setLearners] = useState<any[]>([]);
   const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadLearners = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await api.getLearners(search ? `query=${encodeURIComponent(search)}` : '');
+      setLearners(data || []);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load learners');
+    } finally {
+      setLoading(false);
+    }
+  }, [search]);
 
   useEffect(() => {
-    api.getLearners(search ? `query=${encodeURIComponent(search)}` : '').then(setLearners).catch(() => {});
-  }, [search]);
+    loadLearners();
+  }, [loadLearners]);
 
   return (
     <AppShell currentPath="/learners" roleMode="TEACHER">
@@ -37,43 +54,66 @@ export default function LearnerDirectoryPage() {
           onSearchChange={setSearch}
         />
 
-        <div className="space-y-3">
-          {learners.map((l) => (
-            <Card
-              key={l.id}
-              hoverable
-              className="p-5 border-gray-200/80 flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
-            >
-              <div className="flex items-center gap-3.5 flex-1 min-w-0">
-                <Avatar name={l.name} src={l.avatarUrl} size="md" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <h3 className="text-sm font-bold text-[#082051]">{l.name}</h3>
-                    <Badge variant="primary">{l.level}</Badge>
-                    {l.needsAttention && (
-                      <span className="text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded font-medium">
-                        Needs extra practice
-                      </span>
-                    )}
+        {loading ? (
+          <div className="p-12 text-center text-sm text-[#656C79]">Loading learner directory...</div>
+        ) : error ? (
+          <div className="p-6 max-w-xl mx-auto">
+            <ErrorState
+              title="Unable to load learners"
+              message={error}
+              onRetry={loadLearners}
+            />
+          </div>
+        ) : learners.length === 0 ? (
+          <EmptyState
+            title="No learners found"
+            description={
+              search
+                ? 'No students matched your search criteria. Try a different search query.'
+                : 'No learners are currently enrolled in your classes.'
+            }
+          />
+        ) : (
+          <div className="space-y-3">
+            {learners.map((l) => (
+              <Card
+                key={l.id}
+                hoverable
+                className="p-5 border-gray-200/80 flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
+              >
+                <div className="flex items-center gap-3.5 flex-1 min-w-0">
+                  <Avatar name={l.name} src={l.avatarUrl} size="md" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <h3 className="text-sm font-bold text-[#082051]">{l.name}</h3>
+                      <Badge variant="primary">{l.level}</Badge>
+                      {l.needsAttention && (
+                        <span className="text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded font-medium">
+                          Needs extra practice
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-[#656C79]">{l.email} • {l.className}</p>
                   </div>
-                  <p className="text-xs text-[#656C79]">{l.email} • {l.className}</p>
                 </div>
-              </div>
 
-              <div className="flex items-center gap-6 shrink-0 w-full md:w-auto justify-between md:justify-end">
-                <div className="w-28 text-right">
-                  <div className="text-xs font-bold text-[#082051]">{l.overallProficiency}% overall</div>
-                  <ProgressBar value={l.overallProficiency} size="sm" color="blue" />
+                <div className="flex items-center gap-6 shrink-0 w-full md:w-auto justify-between md:justify-end">
+                  <div className="w-28 text-right">
+                    <div className="text-xs font-bold text-[#082051]">
+                      {l.overallProficiency != null ? `${l.overallProficiency}% overall` : 'NO_DATA'}
+                    </div>
+                    <ProgressBar value={l.overallProficiency || 0} size="sm" color="blue" />
+                  </div>
+                  <a href={`/learners/${l.id}`}>
+                    <Button variant="secondary" size="sm">
+                      View profile ›
+                    </Button>
+                  </a>
                 </div>
-                <a href={`/learners/${l.id}`}>
-                  <Button variant="secondary" size="sm">
-                    View profile ›
-                  </Button>
-                </a>
-              </div>
-            </Card>
-          ))}
-        </div>
+              </Card>
+            ))}
+          </div>
+        )}
       </div>
     </AppShell>
   );

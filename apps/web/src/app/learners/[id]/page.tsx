@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   AppShell,
@@ -12,6 +12,7 @@ import {
   LearnerSkillCard,
   ProgressTrend,
   ProgressBar,
+  ErrorState,
 } from '@acorn/ui';
 import { Sparkles, MessageSquare, ArrowRight, Target, Clock, BookOpen } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -19,15 +20,44 @@ import { api } from '@/lib/api';
 export default function LearnerProfilePage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const [profile, setProfile] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    api.getLearnerProfile(params.id).then(setProfile).catch(() => {});
+  const loadProfile = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await api.getLearnerProfile(params.id);
+      setProfile(data);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load learner profile');
+    } finally {
+      setLoading(false);
+    }
   }, [params.id]);
 
-  if (!profile) {
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
+
+  if (loading) {
     return (
-      <AppShell currentPath="/learners">
-        <div className="p-8 text-center text-[#656C79]">Loading learner profile...</div>
+      <AppShell currentPath="/learners" roleMode="TEACHER">
+        <div className="p-12 text-center text-sm text-[#656C79]">Loading learner profile...</div>
+      </AppShell>
+    );
+  }
+
+  if (error || !profile) {
+    return (
+      <AppShell currentPath="/learners" roleMode="TEACHER">
+        <div className="p-6 max-w-xl mx-auto">
+          <ErrorState
+            title="Unable to load learner profile"
+            message={error || 'Learner not found or access denied.'}
+            onRetry={loadProfile}
+          />
+        </div>
       </AppShell>
     );
   }
@@ -86,7 +116,8 @@ export default function LearnerProfilePage({ params }: { params: { id: string } 
                 </div>
                 <div className="text-right">
                   <div className="text-xl font-bold text-[#082051]">
-                    {profile.overallProficiency}% <span className="text-xs text-[#0967F7]">B1</span>
+                    {profile.overallProficiency != null ? `${profile.overallProficiency}%` : 'NO_DATA'}{' '}
+                    <span className="text-xs text-[#0967F7]">{profile.level}</span>
                   </div>
                   <span className="text-[11px] text-emerald-700 font-medium">
                     Solid progress • On track
@@ -94,15 +125,21 @@ export default function LearnerProfilePage({ params }: { params: { id: string } 
                 </div>
               </div>
 
-              <div className="space-y-3">
-                {profile.skills.map((s: any) => (
-                  <LearnerSkillCard
-                    key={s.skillId}
-                    skill={s}
-                    onSelectSubskill={(subId) => router.push(`/learners/${profile.learnerId}/evidence`)}
-                  />
-                ))}
-              </div>
+              {profile.skills && profile.skills.length > 0 ? (
+                <div className="space-y-3">
+                  {profile.skills.map((s: any) => (
+                    <LearnerSkillCard
+                      key={s.skillId}
+                      skill={s}
+                      onSelectSubskill={(subId) => router.push(`/learners/${profile.learnerId}/evidence`)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="p-6 text-center text-xs text-[#656C79] border border-dashed border-gray-200 rounded-xl">
+                  No skills assessed yet for this learner.
+                </div>
+              )}
             </Card>
 
             {/* Progress over time */}
@@ -113,7 +150,7 @@ export default function LearnerProfilePage({ params }: { params: { id: string } 
                   <p className="text-xs text-[#656C79]">Weighted mastery progression</p>
                 </div>
                 <span className="text-xs bg-[#F3F6FC] text-[#5969AB] px-2.5 py-1 rounded font-medium">
-                  Last 6 months
+                  Authoritative History
                 </span>
               </div>
               <ProgressTrend data={profile.progression} height={160} />
@@ -138,21 +175,23 @@ export default function LearnerProfilePage({ params }: { params: { id: string } 
                   <span className="font-semibold text-[#082051]">IELTS Foundation A</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-50">
-                  <span className="text-[#656C79]">Joined:</span>
-                  <span className="font-semibold text-[#082051]">Jan 15, 2025</span>
+                  <span className="text-[#656C79]">Retained Observations:</span>
+                  <span className="font-semibold text-[#082051]">{profile.totalEvidenceCount}</span>
                 </div>
               </div>
 
               <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100 text-xs italic text-[#082051]">
-                “I want to improve my English to study abroad and feel more confident in real-life conversations.”
+                “Focused on strengthening foundational grammar and reading comprehension.”
               </div>
 
               <div className="pt-2">
                 <div className="flex justify-between text-xs mb-1">
                   <span className="font-medium text-[#656C79]">Evidence coverage</span>
-                  <span className="font-bold text-[#082051]">12 of 16 skills (75%)</span>
+                  <span className="font-bold text-[#082051]">
+                    {Math.round((profile.skillsCoverageRatio || 0) * 100)}%
+                  </span>
                 </div>
-                <ProgressBar value={75} size="sm" color="blue" />
+                <ProgressBar value={Math.round((profile.skillsCoverageRatio || 0) * 100)} size="sm" color="blue" />
               </div>
             </Card>
 
@@ -162,9 +201,11 @@ export default function LearnerProfilePage({ params }: { params: { id: string } 
                 <Target className="w-4 h-4" />
                 <h3 className="text-sm font-bold">Next Suggested Focus</h3>
               </div>
-              <h4 className="text-base font-bold text-[#082051] mb-1">Reading • Inference</h4>
+              <h4 className="text-base font-bold text-[#082051] mb-1">
+                {profile.currentFocus || 'Targeted Skill Practice'}
+              </h4>
               <p className="text-xs text-[#656C79] leading-relaxed mb-4">
-                Help Emma improve her ability to make inferences in longer texts, a key skill for IELTS Reading.
+                Recommended learning activity based on {profile.name}&apos;s recent evidence patterns.
               </p>
               <a href={`/learners/${profile.learnerId}/recommendation`}>
                 <Button variant="primary" size="sm" className="w-full">

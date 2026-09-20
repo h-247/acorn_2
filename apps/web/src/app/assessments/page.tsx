@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   AppShell,
   Button,
@@ -8,6 +8,8 @@ import {
   StatusBadge,
   Card,
   SearchFilterBar,
+  ErrorState,
+  EmptyState,
 } from '@acorn/ui';
 import { Plus, CheckSquare, Clock, ArrowRight, Layers } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -15,10 +17,35 @@ import { api } from '@/lib/api';
 export default function AssessmentsListPage() {
   const [assessments, setAssessments] = useState<any[]>([]);
   const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadAssessments = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await api.getAssessments();
+      setAssessments(data || []);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load assessments');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    api.getAssessments().then(setAssessments).catch(() => {});
-  }, []);
+    loadAssessments();
+  }, [loadAssessments]);
+
+  const filtered = assessments.filter((a) => {
+    if (!search) return true;
+    const term = search.toLowerCase();
+    return (
+      a.title?.toLowerCase().includes(term) ||
+      a.description?.toLowerCase().includes(term) ||
+      a.level?.toLowerCase().includes(term)
+    );
+  });
 
   return (
     <AppShell currentPath="/assessments" roleMode="TEACHER">
@@ -50,38 +77,66 @@ export default function AssessmentsListPage() {
           onSearchChange={setSearch}
         />
 
-        <div className="space-y-3">
-          {assessments.map((a) => (
-            <Card
-              key={a.id}
-              hoverable
-              className="p-5 border-gray-200/80 flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
-            >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <Badge variant="primary">{a.level}</Badge>
-                  <StatusBadge status={a.status} />
-                  <span className="text-xs text-[#656C79] flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5" /> {a.timeLimitMinutes || 20} mins
-                  </span>
-                  <span className="text-xs text-[#656C79]">
-                    • {a.items?.length || 4} questions
-                  </span>
+        {loading ? (
+          <div className="p-12 text-center text-sm text-[#656C79]">Loading assessments...</div>
+        ) : error ? (
+          <div className="p-6 max-w-xl mx-auto">
+            <ErrorState
+              title="Unable to load assessments"
+              message={error}
+              onRetry={loadAssessments}
+            />
+          </div>
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            title="No assessments found"
+            description={
+              search
+                ? 'No assessments matched your search criteria.'
+                : 'No assessments have been created yet. Create your first assessment to assign to students.'
+            }
+            action={
+              <a href="/assessments/builder">
+                <Button variant="primary" size="sm" icon={<Plus className="w-4 h-4" />}>
+                  Create Assessment
+                </Button>
+              </a>
+            }
+          />
+        ) : (
+          <div className="space-y-3">
+            {filtered.map((a) => (
+              <Card
+                key={a.id}
+                hoverable
+                className="p-5 border-gray-200/80 flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <Badge variant="primary">{a.level}</Badge>
+                    <StatusBadge status={a.status} />
+                    <span className="text-xs text-[#656C79] flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5" /> {a.timeLimitMinutes || 20} mins
+                    </span>
+                    <span className="text-xs text-[#656C79]">
+                      • {a.items?.length || 4} questions
+                    </span>
+                  </div>
+                  <h3 className="text-base font-bold text-[#082051] mb-1">{a.title}</h3>
+                  <p className="text-xs text-[#656C79] line-clamp-1">{a.description}</p>
                 </div>
-                <h3 className="text-base font-bold text-[#082051] mb-1">{a.title}</h3>
-                <p className="text-xs text-[#656C79] line-clamp-1">{a.description}</p>
-              </div>
 
-              <div className="flex items-center gap-3 shrink-0">
-                <a href={`/assessments/${a.id}`}>
-                  <Button variant="secondary" size="sm">
-                    View & Assign ›
-                  </Button>
-                </a>
-              </div>
-            </Card>
-          ))}
-        </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <a href={`/assessments/${a.id}`}>
+                    <Button variant="secondary" size="sm">
+                      View & Assign ›
+                    </Button>
+                  </a>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
       </div>
     </AppShell>
   );

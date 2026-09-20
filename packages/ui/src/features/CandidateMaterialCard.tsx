@@ -5,7 +5,7 @@ import type { CandidateMaterialDTO } from '@acorn/contracts';
 
 export interface CandidateMaterialCardProps {
   candidate: CandidateMaterialDTO;
-  onAction: (action: 'REUSE' | 'ADAPT' | 'GENERATE', materialId: string) => void;
+  onAction: (action: 'REUSE' | 'ADAPT' | 'NO_MATCH', materialId: string) => void;
   onPreview?: (materialId: string) => void;
 }
 
@@ -17,7 +17,7 @@ export const CandidateMaterialCard: React.FC<CandidateMaterialCardProps> = ({
   const actionColorMap = {
     REUSE: 'primary',
     ADAPT: 'secondary',
-    GENERATE: 'outline',
+    NO_MATCH: 'outline',
   } as const;
 
   return (
@@ -59,7 +59,7 @@ export const CandidateMaterialCard: React.FC<CandidateMaterialCardProps> = ({
             ? 'Reuse'
             : candidate.action === 'ADAPT'
             ? 'Adapt'
-            : 'Generate'}
+            : 'Create Material'}
         </Button>
       </div>
     </div>

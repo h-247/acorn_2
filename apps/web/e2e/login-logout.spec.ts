@@ -1,0 +1,56 @@
+import { test, expect } from '@playwright/test';
+
+test.describe('Teacher Cookie Login and Logout Smoke Test', () => {
+  test('should sign in teacher, verify Teacher Home and Sign Out, click Sign Out, and verify sign-in page', async ({
+    page,
+    context,
+  }) => {
+    // 1. Navigate to the sign-in page
+    await page.goto('/sign-in');
+    await expect(page).toHaveURL(/\/sign-in/);
+    await expect(page.getByRole('heading', { name: /sign in to acorn/i })).toBeVisible();
+
+    // 2. Fill in teacher credentials from the documented dev seed
+    const emailInput = page.locator('input[type="email"]');
+    const passwordInput = page.locator('input[type="password"]');
+
+    await emailInput.fill('taylor@acorn.edu');
+    await passwordInput.fill('password123');
+
+    // 3. Submit login form
+    const signInButton = page.getByRole('button', { name: /sign in/i });
+    await expect(signInButton).toBeEnabled();
+    await signInButton.click();
+
+    // 4. Verify redirected to Teacher Home
+    await expect(page).toHaveURL('http://localhost:3000/');
+    await expect(page.getByRole('heading', { name: 'Teacher Home' })).toBeVisible();
+    await expect(page.getByText('Welcome back, Ms. Taylor!')).toBeVisible();
+
+    // 5. Verify the auth cookie was set via the cookie authentication flow
+    const cookiesAfterLogin = await context.cookies();
+    const authCookie = cookiesAfterLogin.find((c) => c.name === 'acorn_token');
+    expect(authCookie).toBeDefined();
+    expect(authCookie?.value).toBeTruthy();
+
+    // 6. Locate and verify the Sign Out button is present
+    const signOutButton = page.getByRole('button', { name: /sign out/i });
+    await expect(signOutButton).toBeVisible();
+
+    // 7. Click Sign Out
+    await signOutButton.click();
+
+    // 8. Verify redirected back to the sign-in page
+    await expect(page).toHaveURL(/\/sign-in/);
+    await expect(page.getByRole('heading', { name: /sign in to acorn/i })).toBeVisible();
+
+    // 9. Verify cookie is cleared or invalidated after sign out
+    const cookiesAfterLogout = await context.cookies();
+    const authCookieAfterLogout = cookiesAfterLogout.find((c) => c.name === 'acorn_token');
+    const isCleared =
+      !authCookieAfterLogout ||
+      !authCookieAfterLogout.value ||
+      (authCookieAfterLogout.expires !== -1 && authCookieAfterLogout.expires <= Date.now() / 1000);
+    expect(isCleared).toBe(true);
+  });
+});
