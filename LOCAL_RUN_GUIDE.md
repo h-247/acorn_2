@@ -1,6 +1,6 @@
 # Acorn Local Runnable Version Guide
 
-This guide explains how to run the local runnable version of Acorn for review.
+This guide explains how each collaborator can run an independent local copy of Acorn for development and review. Each laptop has its own PostgreSQL database and SeaweedFS storage; application data is not synchronized through Git.
 
 ## What This Version Contains
 
@@ -18,7 +18,15 @@ This guide explains how to run the local runnable version of Acorn for review.
 - pnpm 9 or newer
 - Docker Desktop running locally
 
-## Setup
+## First-Time Setup (Windows PowerShell)
+
+Clone the repository and switch to the branch containing this local demo (GitHub repository access is required):
+
+```powershell
+git clone https://github.com/AgentiviumAI/acorn.git
+cd acorn
+git switch runnable-local-version
+```
 
 Install dependencies:
 
@@ -26,7 +34,7 @@ Install dependencies:
 pnpm install
 ```
 
-Create the local environment file if it does not exist:
+Create a separate local environment file on each laptop (do not share or commit a real `.env`):
 
 ```powershell
 Copy-Item .env.example .env
@@ -44,15 +52,23 @@ Expected local services:
 - SeaweedFS S3 API: `localhost:8333`
 - SeaweedFS master: `localhost:9333`
 
-## Database Reset And Seed
+## Database Initialization And Seed (First Run Only)
 
-Use this command to reset the local database and recreate the sample data:
+First, apply database migrations to create the tables on a new laptop:
+
+```powershell
+pnpm --filter @acorn/api db:migrate
+```
+
+Then reset the **local development database** and recreate the sample data:
 
 ```powershell
 pnpm db:reset
 ```
 
-The reset command is intended for the local development database:
+**Warning:** `pnpm db:reset` deletes existing application data before reseeding. Run it for first-time demo initialization or only when you intentionally want to discard local changes. It is not required every time the app starts.
+
+The reset command is restricted to this local development database:
 
 ```text
 postgresql://acorn:acorn_dev_only@localhost:5435/acorn
@@ -67,15 +83,18 @@ After reset, the sample data should contain:
 - 1 class
 - 10 enrollments
 
-If migrations need to be applied manually, run:
-
-```powershell
-pnpm --filter @acorn/api db:migrate
-```
-
 ## Run The App
 
-Start both API and web app:
+After first-time setup, start the local containers (if they are stopped) and both applications:
+
+```powershell
+docker compose -f compose.dev.yml up -d
+pnpm dev
+```
+
+Do not run `pnpm db:reset` on normal starts.
+
+To start only the API and web app when containers are already running, use:
 
 ```powershell
 pnpm dev
@@ -120,17 +139,22 @@ The database contains eight additional student accounts in the same class.
 
 ## Verification Commands
 
-The final local verification commands are:
+Run these verification commands after the database has been initialized (they do not require a database reset):
 
 ```powershell
-pnpm db:reset
 pnpm test
 pnpm --filter @acorn/web lint
 pnpm build
+```
+
+For browser-based end-to-end tests, install Playwright Chromium once, then run:
+
+```powershell
+pnpm --filter @acorn/web exec playwright install chromium
 pnpm --filter @acorn/web test:e2e
 ```
 
-Expected result: all commands pass.
+Review any failures instead of resetting the database as a default troubleshooting step.
 
 ## Notes For Sharing
 
@@ -142,4 +166,4 @@ If sending the repository as a zip file, do not include generated or dependency 
 - coverage folders
 - log files
 
-If sharing through Git, commit the code and this guide, then push the branch or repository.
+If sharing through Git, grant your teammate repository access and ask them to check out `runnable-local-version`. Commit and push code changes normally; `.env` stays on each laptop. Each collaborator's database and uploaded files remain local to that laptop.
