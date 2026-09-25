@@ -269,7 +269,15 @@ export const learningEvidence = pgTable('learning_evidence', {
   correctionNotes: text('correction_notes'),
   sourceMaterialId: uuid('source_material_id').references(() => materials.id),
 }, (table) => ({
-  idempotencyIdx: uniqueIndex('learning_evidence_idempotency_idx').on(table.submissionId, table.questionId, table.skillId, table.evidenceType),
+  // Scoped to live rows. Covering every row made one observation unique for
+  // all time, which is what forced a correction to overwrite its predecessor
+  // instead of being written beside it.
+  currentIdx: uniqueIndex('learning_evidence_current_idx')
+    .on(table.submissionId, table.questionId, table.skillId, table.evidenceType)
+    .where(sql`is_superseded = false`),
+  liveLearnerSkillIdx: index('learning_evidence_live_learner_skill_idx')
+    .on(table.learnerId, table.skillId, table.observedAt)
+    .where(sql`is_superseded = false`),
   learnerIdx: index('learning_evidence_learner_idx').on(table.learnerId),
   skillIdx: index('learning_evidence_skill_idx').on(table.skillId),
   observedAtIdx: index('learning_evidence_observed_at_idx').on(table.observedAt),

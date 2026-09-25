@@ -18,6 +18,7 @@ import {
 import { NotFoundError, BadRequestError, ForbiddenError } from '../../shared/errors.js';
 import { storage } from '../../infrastructure/object-storage/storage.js';
 import { recomputeLearnerSkillState } from '../learner-state/learner-state.service.js';
+import { appendEvidence, supersedeEvidence } from '../evidence/evidence.service.js';
 
 async function assertTeacherSubmissionAccess(user: AuthContext, sub: typeof schema.submissions.$inferSelect) {
   if (user.role !== UserRole.TEACHER) return;
@@ -762,36 +763,24 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
 
           for (const qs of skillsForQ) {
             affectedSkillIds.add(qs.skillId);
-            await tx
-              .insert(schema.learningEvidence)
-              .values({
-                learnerId: sub.learnerId,
-                skillId: qs.skillId,
-                questionId: ans.questionId,
-                assessmentId: sub.assessmentId,
-                submissionId: sub.id,
-                evidenceType: EvidenceType.QUESTION_RESULT,
-                evaluatorType: EvaluatorType.AUTO,
-                observedValue: String(ans.responsePayload),
-                normalizedScore: normScore,
-                difficulty: question?.difficulty || 'MEDIUM',
-                weight: qs.weight ?? 1.0,
-                observedAt: now,
-                sourceMaterialId: question?.sourceMaterialId || null,
-              })
-              .onConflictDoUpdate({
-                target: [
-                  schema.learningEvidence.submissionId,
-                  schema.learningEvidence.questionId,
-                  schema.learningEvidence.skillId,
-                  schema.learningEvidence.evidenceType,
-                ],
-                set: {
-                  normalizedScore: normScore,
-                  observedValue: String(ans.responsePayload),
-                  observedAt: now,
-                },
-              });
+            // The handler returns early for a paper that is already in, so this
+            // pass never has an earlier row of its own to correct. `now` is the
+            // moment of submission here, which is exactly what observed_at wants.
+            await appendEvidence(tx, {
+              learnerId: sub.learnerId,
+              skillId: qs.skillId,
+              questionId: ans.questionId,
+              assessmentId: sub.assessmentId,
+              submissionId: sub.id,
+              evidenceType: EvidenceType.QUESTION_RESULT,
+              evaluatorType: EvaluatorType.AUTO,
+              observedValue: String(ans.responsePayload),
+              normalizedScore: normScore,
+              difficulty: question?.difficulty || 'MEDIUM',
+              weight: qs.weight ?? 1.0,
+              observedAt: now,
+              sourceMaterialId: question?.sourceMaterialId || null,
+            });
           }
         }
 
@@ -949,9 +938,25 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
               )
             );
 
-          await tx
-            .insert(schema.learningEvidence)
-            .values({
+          // A submitted paper can be evaluated again, so this is a regrade as
+          // often as it is a first marking. The old marking is retired rather
+          // than written over, the same move made just above for the machine's
+          // row - only here both rows share an evidence type, which is why the
+          // unique index had to be scoped to live rows first.
+          //
+          // observed_at is when the learner handed the paper in, never when a
+          // teacher got round to marking it: learner state takes the most recent
+          // evidence by that column, so stamping it with the marking time would
+          // let an afternoon of catching up on old papers push genuinely recent
+          // work out of the window.
+          await supersedeEvidence(tx, {
+            key: {
+              submissionId: sub.id,
+              questionId: r.questionId,
+              skillId: qs.skillId,
+              evidenceType: EvidenceType.RUBRIC_RESULT,
+            },
+            values: {
               learnerId: sub.learnerId,
               skillId: qs.skillId,
               questionId: r.questionId,
@@ -963,23 +968,10 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
               normalizedScore: normScore,
               difficulty: question?.difficulty || 'MEDIUM',
               weight: qs.weight ?? 1.0,
-              observedAt: now,
+              observedAt: sub.submittedAt ?? now,
               sourceMaterialId: question?.sourceMaterialId || null,
-            })
-            .onConflictDoUpdate({
-              target: [
-                schema.learningEvidence.submissionId,
-                schema.learningEvidence.questionId,
-                schema.learningEvidence.skillId,
-                schema.learningEvidence.evidenceType,
-              ],
-              set: {
-                normalizedScore: normScore,
-                observedValue: JSON.stringify(r.rubricScores || r.rawScore),
-                observedAt: now,
-                isSuperseded: false, // ensure the RUBRIC_RESULT itself is never superseded
-              },
-            });
+            },
+          });
         }
       }
 

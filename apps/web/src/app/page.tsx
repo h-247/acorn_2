@@ -73,9 +73,10 @@ export default function TeacherHomePage() {
 
   const pendingReviewCount = submissions.filter((s) => s.status === 'SUBMITTED').length;
   const draftAssessmentsCount = assessments.filter((a) => a.status === 'DRAFT').length;
-  const recommendationsToReview = metrics?.recommendationsTotal != null
-    ? Math.max(0, metrics.recommendationsTotal - (metrics.recommendationsAcceptedCount || 0))
-    : 0;
+  // Reported by the API rather than inferred here: total minus accepted also
+  // counted the ones a teacher had already rejected, modified, or that had gone
+  // stale, so the number only ever grew.
+  const recommendationsToReview = metrics?.recommendationsPendingCount ?? 0;
 
   const teacherName = currentUser?.name || 'Teacher';
 

@@ -38,25 +38,63 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
 
     if (!learner) throw new NotFoundError('Learner not found');
 
-    // Check if there is an existing pending or accepted recommendation
-    const existingRecs = await db
+    // Pick by what the reader can act on, not by whichever row is newest.
+    //
+    // Ordering by created_at alone meant a recommendation that had already been
+    // accepted or rejected kept its place at the top - milliseconds ahead of a
+    // sibling - so the workspace reopened a finished decision while the one
+    // actually waiting was never shown, and the count on the teacher's home
+    // screen pointed at a card nobody could reach.
+    const learnerRecs = await db
       .select()
       .from(schema.recommendations)
       .where(eq(schema.recommendations.learnerId, learnerId))
-      .orderBy(desc(schema.recommendations.createdAt))
-      .limit(1);
+      .orderBy(desc(schema.recommendations.createdAt));
 
-    let rec = existingRecs[0];
+    // A learner sees a suggestion only once a teacher has accepted it.
+    let rec =
+      user.role === UserRole.STUDENT
+        ? learnerRecs.find(
+            (r) => r.decisionStatus === TeacherDecisionStatus.ACCEPT && !r.isStale
+          )
+        : learnerRecs.find(
+            (r) => r.decisionStatus === TeacherDecisionStatus.PENDING && !r.isStale
+          );
 
-    // Students must not see pending, stale, or rejected recommendations
-    if (user.role === UserRole.STUDENT) {
-      if (!rec || rec.decisionStatus !== TeacherDecisionStatus.ACCEPT || rec.isStale) {
-        return reply.status(200).send(null);
-      }
+    if (user.role === UserRole.STUDENT && !rec) {
+      return reply.status(200).send(null);
     }
 
-    // If no existing recommendation or if it's stale, generate an evidence-grounded recommendation (staff only)
-    if (!rec || rec.isStale) {
+    // Nothing waiting on a decision, so fall back to the last one accepted.
+    // Accepting is not the end of the job - the teacher still has to assign the
+    // activity - so the card has to survive the decision that approved it.
+    // Rejected and modified ones never come back this way, which is what makes
+    // "no, something else" actually move on.
+    if (!rec && user.role !== UserRole.STUDENT) {
+      const accepted = await db
+        .select({ recommendation: schema.recommendations })
+        .from(schema.recommendations)
+        .innerJoin(
+          schema.teacherDecisions,
+          eq(schema.teacherDecisions.recommendationId, schema.recommendations.id)
+        )
+        .where(
+          and(
+            eq(schema.recommendations.learnerId, learnerId),
+            eq(schema.recommendations.isStale, false),
+            eq(schema.recommendations.decisionStatus, TeacherDecisionStatus.ACCEPT)
+          )
+        )
+        .orderBy(desc(schema.teacherDecisions.decidedAt))
+        .limit(1);
+
+      rec = accepted[0]?.recommendation;
+    }
+
+    // Nothing outstanding, so work out what to suggest next. Rejecting reaches
+    // here on the next load, which is what makes "no, something else" a usable
+    // answer rather than a dead end (staff only).
+    if (!rec) {
       if (user.role === UserRole.STUDENT) {
         return reply.status(200).send(null);
       }
@@ -303,6 +341,16 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
 
     if (rec.isStale) {
       throw new BadRequestError('Cannot make a decision on a STALE recommendation. Refresh to get a new one.');
+    }
+
+    // One decision per recommendation. Without this a teacher could record
+    // ACCEPT and then REJECT on the same card, leaving several rows against one
+    // recommendation - which is how the acceptance rate came to exceed 100%,
+    // and why a rejected card still offered its three buttons.
+    if (rec.decisionStatus !== TeacherDecisionStatus.PENDING) {
+      throw new BadRequestError(
+        `This recommendation was already decided (${rec.decisionStatus}). Refresh to get the next one.`
+      );
     }
 
     await assertLearnerAccess(user, rec.learnerId);
