@@ -4,18 +4,20 @@ import * as schema from '../../infrastructure/persistence/schema.js';
 import { eq, and, desc, inArray } from 'drizzle-orm';
 import { authenticate, requireRole, assertLearnerAccess } from '../../infrastructure/auth/auth.js';
 import { EvidenceCorrectionRequestSchema, UserRole } from '@acorn/contracts';
-import { NotFoundError, ForbiddenError } from '../../shared/errors.js';
+import { NotFoundError, ForbiddenError, BadRequestError } from '../../shared/errors.js';
 import { recomputeLearnerSkillState } from '../learner-state/learner-state.service.js';
+import { correctEvidenceRow } from './evidence.service.js';
 
 export const evidencePlugin: FastifyPluginAsync = async (fastify) => {
   // Query evidence list
   fastify.get('/', { preHandler: [authenticate] }, async (request) => {
     const user = request.user!;
-    const { learnerId, skillId, assessmentId, limit = '20' } = request.query as {
+    const { learnerId, skillId, assessmentId, limit = '20', includeSuperseded } = request.query as {
       learnerId?: string;
       skillId?: string;
       assessmentId?: string;
       limit?: string;
+      includeSuperseded?: string;
     };
 
     let targetLearnerIds: string[] | null = null;
@@ -67,6 +69,13 @@ export const evidencePlugin: FastifyPluginAsync = async (fastify) => {
     }
     if (assessmentId) {
       conditions.push(eq(schema.learningEvidence.assessmentId, assessmentId));
+    }
+
+    // Retired rows are the history behind a corrected score, not part of the
+    // current picture - and learner state already ignores them, so listing them
+    // by default would show figures that do not add up to the score on screen.
+    if (includeSuperseded !== 'true') {
+      conditions.push(eq(schema.learningEvidence.isSuperseded, false));
     }
 
     const parsedLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
@@ -130,6 +139,7 @@ export const evidencePlugin: FastifyPluginAsync = async (fastify) => {
         observedAt: e.observedAt.toISOString(),
         isCorrected: e.isCorrected,
         correctionNotes: e.correctionNotes,
+        isSuperseded: e.isSuperseded,
         sourceMaterialId: e.sourceMaterialId,
         sourceMaterialTitle: e.sourceMaterialId ? materialMap.get(e.sourceMaterialId) : undefined,
       };
@@ -192,6 +202,7 @@ export const evidencePlugin: FastifyPluginAsync = async (fastify) => {
       observedAt: e.observedAt.toISOString(),
       isCorrected: e.isCorrected,
       correctionNotes: e.correctionNotes,
+      isSuperseded: e.isSuperseded,
       sourceMaterialId: e.sourceMaterialId,
       sourceMaterialTitle,
     };
@@ -218,18 +229,23 @@ export const evidencePlugin: FastifyPluginAsync = async (fastify) => {
       evidenceId: id,
     });
 
+    // Correcting a row that has already been replaced would leave two live
+    // values for one observation. The caller is pointed at the current one.
+    if (e.isSuperseded) {
+      throw new BadRequestError(
+        'This evidence has already been corrected. Correct the replacement instead.'
+      );
+    }
+
     const oldScore = e.normalizedScore;
 
     const result = await db.transaction(async (tx) => {
-      const [updated] = await tx
-        .update(schema.learningEvidence)
-        .set({
-          normalizedScore: body.correctedNormalizedScore,
-          isCorrected: true,
-          correctionNotes: body.reason,
-        })
-        .where(eq(schema.learningEvidence.id, id))
-        .returning();
+      const replacement = await correctEvidenceRow(
+        tx,
+        e,
+        body.correctedNormalizedScore,
+        body.reason
+      );
 
       await tx.insert(schema.auditEvents).values({
         actorId: user.id,
@@ -241,13 +257,15 @@ export const evidencePlugin: FastifyPluginAsync = async (fastify) => {
           oldScore,
           newScore: body.correctedNormalizedScore,
           reason: body.reason,
+          supersededEvidenceId: id,
+          replacementEvidenceId: replacement.id,
         },
       });
 
       // Synchronize recomputed learner skill state in DB
       await recomputeLearnerSkillState(tx, e.learnerId, e.skillId);
 
-      return updated;
+      return replacement;
     });
 
     return {
