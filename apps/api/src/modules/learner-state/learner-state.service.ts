@@ -12,7 +12,10 @@ export interface ComputedSkillState {
 }
 
 export function computeSkillState(evidenceList: any[], recentN: number = 20): ComputedSkillState {
-  if (!evidenceList || evidenceList.length === 0) {
+  // G08: Only consider non-superseded evidence in skill state computation
+  const effectiveEvidence = evidenceList.filter((e) => !e.isSuperseded);
+
+  if (!effectiveEvidence || effectiveEvidence.length === 0) {
     return {
       score: null,
       scorePercentage: null,
@@ -24,7 +27,7 @@ export function computeSkillState(evidenceList: any[], recentN: number = 20): Co
   }
 
   // Sort newest first, take recent N
-  const sorted = [...evidenceList].sort(
+  const sorted = [...effectiveEvidence].sort(
     (a, b) => new Date(b.observedAt).getTime() - new Date(a.observedAt).getTime()
   );
   const recent = sorted.slice(0, recentN);
@@ -36,7 +39,7 @@ export function computeSkillState(evidenceList: any[], recentN: number = 20): Co
   const totalWeight = recent.reduce((sum, item) => sum + (item.weight ?? 1.0), 0);
 
   const score = totalWeight > 0 ? totalWeightedScore / totalWeight : 0;
-  const count = evidenceList.length;
+  const count = effectiveEvidence.length;
 
   let confidence: ConfidenceLevel = ConfidenceLevel.NO_DATA;
   if (count === 0) confidence = ConfidenceLevel.NO_DATA;
@@ -71,6 +74,7 @@ export async function recomputeLearnerSkillState(
     )
     .orderBy(desc(schema.learningEvidence.observedAt));
 
+
   const state = computeSkillState(evidenceList, recentN);
   const now = new Date();
 
@@ -97,6 +101,18 @@ export async function recomputeLearnerSkillState(
         updatedAt: now,
       },
     });
+
+  // Any evidence change can change which skill is weakest, so every current
+  // recommendation for the learner must be regenerated from the new state.
+  await txOrDb
+    .update(schema.recommendations)
+    .set({ isStale: true })
+    .where(
+      and(
+        eq(schema.recommendations.learnerId, learnerId),
+        eq(schema.recommendations.isStale, false)
+      )
+    );
 
   return state;
 }

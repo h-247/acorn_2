@@ -44,6 +44,7 @@ export const SEED_IDS = {
   matGrammarClauses: '77777777-7777-7777-7777-777777777704',
   matListeningCampus: '77777777-7777-7777-7777-777777777705',
   matWritingRubric: '77777777-7777-7777-7777-777777777706',
+  matSpeakingRubric: '77777777-7777-7777-7777-777777777709',
   matSustainableCities: '77777777-7777-7777-7777-777777777707',
   matInferenceMiniSet: '77777777-7777-7777-7777-777777777708',
 
@@ -53,6 +54,7 @@ export const SEED_IDS = {
   qVocabInContext: '88888888-8888-8888-8888-888888888803',
   qDetailUrbanFarming: '88888888-8888-8888-8888-888888888804',
   qWritingOpinionEssay: '88888888-8888-8888-8888-888888888805',
+  qSpeakingTask: '88888888-8888-8888-8888-888888888806',
 
   // Assessment & Assignment
   assessmentReading03: '99999999-9999-9999-9999-999999999901',
@@ -343,6 +345,20 @@ export function getInitialSeedData() {
       updatedAt: '2025-03-10T12:00:00.000Z',
     },
     {
+      id: SEED_IDS.matSpeakingRubric,
+      title: 'Speaking Part 2 Rubric & Guidelines',
+      type: MaterialType.RUBRIC,
+      primarySkillId: SEED_IDS.skillSpeaking,
+      level: CEFRLevel.B2,
+      estimatedMinutes: 5,
+      source: 'Academic Team',
+      status: MaterialStatus.APPROVED,
+      currentVersionNumber: 1,
+      usageCount: 20,
+      createdAt: '2025-01-15T09:00:00.000Z',
+      updatedAt: '2025-03-10T12:00:00.000Z',
+    },
+    {
       id: SEED_IDS.matSustainableCities,
       title: 'Reading Practice: Sustainable Cities',
       type: MaterialType.ARTICLE,
@@ -477,6 +493,25 @@ export function getInitialSeedData() {
       usageCount: 18,
       createdAt: '2025-03-14T11:00:00.000Z',
     },
+    {
+      id: SEED_IDS.qSpeakingTask,
+      type: QuestionType.SPEAKING,
+      prompt: 'Speak for 2 minutes. Describe a time you successfully solved a problem. What was it, and how did you do it?',
+      passage: undefined,
+      options: undefined,
+      correctAnswer: undefined,
+      rubric: [
+        { criteria: 'Fluency', maxScore: 25 },
+        { criteria: 'Pronunciation', maxScore: 25 },
+        { criteria: 'Vocabulary', maxScore: 25 },
+        { criteria: 'Grammar Accuracy', maxScore: 25 },
+      ],
+      difficulty: Difficulty.MEDIUM,
+      level: CEFRLevel.B1,
+      sourceMaterialId: SEED_IDS.matSpeakingRubric,
+      usageCount: 5,
+      createdAt: '2025-03-20T10:00:00.000Z',
+    },
   ];
 
   const questionSkills = [
@@ -512,6 +547,13 @@ export function getInitialSeedData() {
       id: 'qs111111-1111-1111-1111-111111111105',
       questionId: SEED_IDS.qWritingOpinionEssay,
       skillId: SEED_IDS.skillWriting,
+      role: 'PRIMARY',
+      weight: 2.0,
+    },
+    {
+      id: 'qs111111-1111-1111-1111-111111111106',
+      questionId: SEED_IDS.qSpeakingTask,
+      skillId: SEED_IDS.skillSpeaking,
       role: 'PRIMARY',
       weight: 2.0,
     },

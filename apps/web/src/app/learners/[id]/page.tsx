@@ -142,19 +142,40 @@ export default function LearnerProfilePage({ params }: { params: { id: string } 
               )}
             </Card>
 
-            {/* Progress over time */}
-            <Card className="p-6 border-gray-200/80">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="text-base font-bold text-[#082051]">Progress over time</h3>
-                  <p className="text-xs text-[#656C79]">Weighted mastery progression</p>
+              {/* Progress over time */}
+              <Card className="p-6 border-gray-200/80">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-base font-bold text-[#082051]">Progress over time</h3>
+                    <p className="text-xs text-[#656C79]">Weighted mastery progression</p>
+                  </div>
+                  <span className="text-xs bg-[#F3F6FC] text-[#5969AB] px-2.5 py-1 rounded font-medium">
+                    Authoritative History
+                  </span>
                 </div>
-                <span className="text-xs bg-[#F3F6FC] text-[#5969AB] px-2.5 py-1 rounded font-medium">
-                  Authoritative History
-                </span>
-              </div>
-              <ProgressTrend data={profile.progression} height={160} />
-            </Card>
+                {(() => {
+                  const trendData = (profile.progression || [])
+                    .map((p: any) => ({
+                      label: p.label || '',
+                      value: typeof p.value === 'number' && isFinite(p.value)
+                        ? p.value
+                        : typeof p.scorePercentage === 'number' && isFinite(p.scorePercentage)
+                          ? p.scorePercentage
+                          : null,
+                    }))
+                    .filter((p: any) => p.value !== null) as { label: string; value: number }[];
+
+                  if (trendData.length === 0) {
+                    return (
+                      <div className="h-[160px] flex items-center justify-center text-xs text-[#656C79] border border-dashed border-gray-200 rounded-xl">
+                        No progression data yet — complete assessments to see your trend.
+                      </div>
+                    );
+                  }
+                  return <ProgressTrend data={trendData} height={160} />;
+                })()}
+              </Card>
+
           </div>
 
           {/* Right Col: Snapshot & Next Suggested Focus */}

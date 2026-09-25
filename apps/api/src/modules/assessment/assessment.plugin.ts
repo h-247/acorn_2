@@ -5,6 +5,7 @@ import { eq, and, or, desc, inArray, sql } from 'drizzle-orm';
 import { authenticate, requireRole, assertClassAccess, assertLearnerAccess } from '../../infrastructure/auth/auth.js';
 import {
   CreateQuestionRequestSchema,
+  CreateQuestionRequestSchemaBase,
   CreateAssessmentRequestSchema,
   AssignAssessmentRequestSchema,
   AssessmentStatus,
@@ -13,7 +14,7 @@ import {
 import { NotFoundError, BadRequestError, ForbiddenError } from '../../shared/errors.js';
 import { z } from 'zod';
 
-const UpdateQuestionSchema = CreateQuestionRequestSchema.partial();
+const UpdateQuestionSchema = CreateQuestionRequestSchemaBase.partial();
 const UpdateAssessmentSchema = z.object({
   title: z.string().min(3).optional(),
   description: z.string().optional(),
@@ -421,12 +422,32 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
         })
         .returning();
 
+      const questions = await tx
+        .select()
+        .from(schema.questions)
+        .where(inArray(schema.questions.id, body.questionIds));
+
       for (let i = 0; i < body.questionIds.length; i++) {
+        const qId = body.questionIds[i];
+        const q = questions.find((quest) => quest.id === qId);
+        let calculatedPoints = 1.0;
+
+        if (q && q.rubric) {
+          try {
+            const parsed = typeof q.rubric === 'string' ? JSON.parse(q.rubric) : q.rubric;
+            if (Array.isArray(parsed)) {
+              calculatedPoints = parsed.reduce((sum: number, c: any) => sum + (c.maxScore || 0), 0);
+            }
+          } catch (e) {
+            // fallback to 1.0 if parse fails
+          }
+        }
+
         await tx.insert(schema.assessmentItems).values({
           assessmentId: newAssessment.id,
-          questionId: body.questionIds[i],
+          questionId: qId,
           sequenceOrder: i + 1,
-          points: 1.0,
+          points: calculatedPoints,
         });
       }
 
@@ -470,12 +491,33 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
 
       if (questionIds && questionIds.length > 0 && existing.status === AssessmentStatus.DRAFT) {
         await tx.delete(schema.assessmentItems).where(eq(schema.assessmentItems.assessmentId, id));
+
+        const questions = await tx
+          .select()
+          .from(schema.questions)
+          .where(inArray(schema.questions.id, questionIds));
+
         for (let i = 0; i < questionIds.length; i++) {
+          const qId = questionIds[i];
+          const q = questions.find((quest) => quest.id === qId);
+          let calculatedPoints = 1.0;
+
+          if (q && q.rubric) {
+            try {
+              const parsed = typeof q.rubric === 'string' ? JSON.parse(q.rubric) : q.rubric;
+              if (Array.isArray(parsed)) {
+                calculatedPoints = parsed.reduce((sum: number, c: any) => sum + (c.maxScore || 0), 0);
+              }
+            } catch (e) {
+              // fallback
+            }
+          }
+
           await tx.insert(schema.assessmentItems).values({
             assessmentId: id,
-            questionId: questionIds[i],
+            questionId: qId,
             sequenceOrder: i + 1,
-            points: 1.0,
+            points: calculatedPoints,
           });
         }
       }

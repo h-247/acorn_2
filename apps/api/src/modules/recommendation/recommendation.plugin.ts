@@ -50,13 +50,13 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
 
     // Students must not see pending, stale, or rejected recommendations
     if (user.role === UserRole.STUDENT) {
-      if (!rec || rec.decisionStatus !== TeacherDecisionStatus.ACCEPT) {
+      if (!rec || rec.decisionStatus !== TeacherDecisionStatus.ACCEPT || rec.isStale) {
         return reply.status(200).send(null);
       }
     }
 
-    // If no existing recommendation, generate an evidence-grounded recommendation (staff only)
-    if (!rec) {
+    // If no existing recommendation or if it's stale, generate an evidence-grounded recommendation (staff only)
+    if (!rec || rec.isStale) {
       if (user.role === UserRole.STUDENT) {
         return reply.status(200).send(null);
       }
@@ -75,16 +75,18 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
       let targetSkill = allSkills[0];
       let lowestScore = Infinity;
       let targetEvidenceCount = 0;
+      let targetEvidenceIds: string[] = [];
       let targetState = computeSkillState([]);
 
       for (const skill of allSkills) {
-        const evs = learnerEvidence.filter((e) => e.skillId === skill.id);
+        const evs = learnerEvidence.filter((e) => e.skillId === skill.id && !e.isSuperseded);
         if (evs.length > 0) {
           const st = computeSkillState(evs);
           if (st.score !== null && st.score < lowestScore) {
             lowestScore = st.score;
             targetSkill = skill;
             targetEvidenceCount = evs.length;
+            targetEvidenceIds = evs.map((e) => e.id);
             targetState = st;
           }
         }
@@ -94,15 +96,38 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
       if (lowestScore === Infinity && allSkills.length > 0) {
         targetSkill = allSkills[0];
         targetEvidenceCount = 0;
+        targetEvidenceIds = [];
         targetState = computeSkillState([]);
       }
 
       // 3. Find candidate materials from PostgreSQL
-      const allMaterials = await db
+      // G05: Materials are approved after review (APPROVED status).
+      // The original code looked for 'ACTIVE' which is not a valid material status.
+      // Fetch learner's classes
+      const enrollments = await db
+        .select({ classId: schema.classEnrollments.classId })
+        .from(schema.classEnrollments)
+        .where(eq(schema.classEnrollments.learnerId, learnerId));
+      const learnerClassIds = enrollments.map((e) => e.classId);
+
+      // Fetch materials released to those classes
+      let releasedMaterialIds = new Set<string>();
+      if (learnerClassIds.length > 0) {
+        const classMaterials = await db
+          .select({ materialId: schema.classMaterials.materialId })
+          .from(schema.classMaterials)
+          .where(inArray(schema.classMaterials.classId, learnerClassIds));
+        releasedMaterialIds = new Set(classMaterials.map((cm) => cm.materialId));
+      }
+
+      const allMaterialsQuery = await db
         .select()
         .from(schema.materials)
-        .where(eq(schema.materials.status, 'ACTIVE'))
+        .where(eq(schema.materials.status, MaterialStatus.APPROVED))
         .orderBy(desc(schema.materials.usageCount));
+
+      const allMaterials = allMaterialsQuery.filter((m) => releasedMaterialIds.has(m.id));
+
 
       const matchingMaterials = allMaterials.filter((m) => m.primarySkillId === targetSkill.id);
 
@@ -142,13 +167,24 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
       const recId = randomUUID();
       const now = new Date();
 
-      const rationale: string[] = [
-        targetEvidenceCount > 0
-          ? `Performance in ${targetSkill.name} is lower than target mastery.`
-          : `Foundational practice in ${targetSkill.name} to establish baseline evidence.`,
-        `Aligned with CEFR ${targetSkill.level || 'B1'} curriculum objectives.`,
-        `Grounded in ${targetEvidenceCount} recorded learning evidence observation(s).`,
-      ];
+      const rationale = {
+        texts: [
+          targetEvidenceCount > 0
+            ? `Performance in ${targetSkill.name} is lower than target mastery.`
+            : `Foundational practice in ${targetSkill.name} to establish baseline evidence.`,
+          `Aligned with CEFR ${targetSkill.level || 'B1'} curriculum objectives.`,
+          `Grounded in ${targetEvidenceCount} recorded learning evidence observation(s).`,
+        ],
+        grounding: {
+          timestamp: now.toISOString(),
+          effectiveEvidenceCount: targetEvidenceCount,
+          evidenceIds: targetEvidenceIds,
+          targetSkillId: targetSkill.id,
+          targetSkillName: targetSkill.name,
+          score: targetState.score,
+          confidence: targetState.confidence,
+        }
+      };
 
       rec = await db.transaction(async (tx) => {
         const [newRec] = await tx
@@ -232,7 +268,7 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
       targetLevel: rec.targetLevel as CEFRLevel,
       priority: rec.priority as 'HIGH' | 'MEDIUM' | 'LOW',
       recommendedActionText: rec.recommendedActionText,
-      rationale: (rec.rationale as string[]) || [],
+      rationale: rec.rationale,
       evidenceBasisCount: rec.evidenceBasisCount,
       learnerCurrentScore: rec.learnerCurrentScore,
       learnerConfidence: rec.learnerConfidence as ConfidenceLevel,
@@ -264,6 +300,10 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
       .where(eq(schema.recommendations.id, id));
 
     if (!rec) throw new NotFoundError('Recommendation not found');
+
+    if (rec.isStale) {
+      throw new BadRequestError('Cannot make a decision on a STALE recommendation. Refresh to get a new one.');
+    }
 
     await assertLearnerAccess(user, rec.learnerId);
 
@@ -338,8 +378,10 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
       if (!rec) throw new NotFoundError('Recommendation not found');
 
       // Reject stale or rejected recommendations
+      if (rec.isStale) {
+        throw new BadRequestError('Cannot act on a STALE recommendation');
+      }
       if (
-        rec.decisionStatus === 'STALE' ||
         rec.decisionStatus === 'REJECT' ||
         rec.decisionStatus === TeacherDecisionStatus.REJECT
       ) {
@@ -355,28 +397,33 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
         ...rawBody,
       });
 
+      // G07: Require valid activity content (materialId or assessmentId) so we don't return an empty 200 success
+      if (!body.assessmentId && !body.materialId) {
+        throw new BadRequestError('Must specify either a materialId or an assessmentId to assign a next activity');
+      }
+
       await assertLearnerAccess(user, rec.learnerId);
 
-      // 2. Idempotency check: If already ACCEPT, verify payload consistency and return existing decision
-      if (rec.decisionStatus === TeacherDecisionStatus.ACCEPT) {
+      // 2. Idempotency check: If already assigned, verify payload consistency and return existing assignment
+      const [audit] = await tx
+        .select()
+        .from(schema.auditEvents)
+        .where(
+          and(
+            eq(schema.auditEvents.action, 'NEXT_ACTIVITY_ASSIGNED'),
+            eq(schema.auditEvents.entityType, 'RECOMMENDATION'),
+            eq(schema.auditEvents.entityId, id)
+          )
+        )
+        .orderBy(desc(schema.auditEvents.timestamp))
+        .limit(1);
+
+      if (rec.decisionStatus === TeacherDecisionStatus.ACCEPT && audit) {
         const [existingDecision] = await tx
           .select()
           .from(schema.teacherDecisions)
           .where(eq(schema.teacherDecisions.recommendationId, id))
           .orderBy(desc(schema.teacherDecisions.decidedAt))
-          .limit(1);
-
-        const [audit] = await tx
-          .select()
-          .from(schema.auditEvents)
-          .where(
-            and(
-              eq(schema.auditEvents.action, 'NEXT_ACTIVITY_ASSIGNED'),
-              eq(schema.auditEvents.entityType, 'RECOMMENDATION'),
-              eq(schema.auditEvents.entityId, id)
-            )
-          )
-          .orderBy(desc(schema.auditEvents.timestamp))
           .limit(1);
 
         const meta = (audit?.metadata as any) || {};
@@ -389,7 +436,7 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
         }
 
         // Verify full payload consistency: reject if any meaningful field differs
-        const prevMaterialId = meta.materialId ?? existingDecision?.selectedMaterialId ?? null;
+        const prevMaterialId = meta.materialId ?? null;
         const reqMaterialId = body.materialId ?? null;
         if (reqMaterialId !== prevMaterialId) {
           throw new BadRequestError('Recommendation already accepted with different parameters (materialId mismatch)');
@@ -407,7 +454,7 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
           throw new BadRequestError('Recommendation already accepted with different parameters (classId mismatch)');
         }
 
-        const prevInstructions = meta.instructions ?? (existingDecision?.teacherNotes && existingDecision.teacherNotes !== 'Assigned next activity' ? existingDecision.teacherNotes : null) ?? null;
+        const prevInstructions = meta.instructions ?? null;
         const reqInstructions = body.instructions ?? null;
         if (reqInstructions !== prevInstructions) {
           throw new BadRequestError('Recommendation already accepted with different parameters (instructions mismatch)');
@@ -611,30 +658,42 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
           .where(eq(schema.classes.id, targetClassId));
       }
 
-      // 5. Update recommendation to ACCEPT
-      await tx
-        .update(schema.recommendations)
-        .set({
-          decisionStatus: TeacherDecisionStatus.ACCEPT,
-          recommendedActionText: body.instructions || rec.recommendedActionText,
-        })
-        .where(eq(schema.recommendations.id, id));
+      // 5. Reuse an explicit ACCEPT decision when the teacher already reviewed
+      // the recommendation. Assigning curriculum must not duplicate or rewrite
+      // that separate decision record.
+      let [decisionRow] = rec.decisionStatus === TeacherDecisionStatus.ACCEPT
+        ? await tx
+            .select()
+            .from(schema.teacherDecisions)
+            .where(eq(schema.teacherDecisions.recommendationId, id))
+            .orderBy(desc(schema.teacherDecisions.decidedAt))
+            .limit(1)
+        : [];
 
-      // 6. Record teacher decision
-      const [decisionRow] = await tx
-        .insert(schema.teacherDecisions)
-        .values({
-          id: randomUUID(),
-          recommendationId: id,
-          decision: TeacherDecisionStatus.ACCEPT,
-          teacherNotes: body.instructions || 'Assigned next activity',
-          selectedMaterialId: body.materialId || null,
-          decidedAt: now,
-          teacherId: user.id,
-        })
-        .returning();
+      if (!decisionRow) {
+        await tx
+          .update(schema.recommendations)
+          .set({
+            decisionStatus: TeacherDecisionStatus.ACCEPT,
+            recommendedActionText: body.instructions || rec.recommendedActionText,
+          })
+          .where(eq(schema.recommendations.id, id));
 
-      // 7. Record audit event
+        [decisionRow] = await tx
+          .insert(schema.teacherDecisions)
+          .values({
+            id: randomUUID(),
+            recommendationId: id,
+            decision: TeacherDecisionStatus.ACCEPT,
+            teacherNotes: body.instructions || 'Assigned next activity',
+            selectedMaterialId: body.materialId || null,
+            decidedAt: now,
+            teacherId: user.id,
+          })
+          .returning();
+      }
+
+      // 6. Record audit event
       await tx.insert(schema.auditEvents).values({
         actorId: user.id,
         actorRole: user.role,

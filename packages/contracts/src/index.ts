@@ -196,6 +196,12 @@ export const AdaptMaterialRequestSchema = z.object({
 export type AdaptMaterialRequest = z.infer<typeof AdaptMaterialRequestSchema>;
 
 // --- Question & Assessment ---
+export const RubricCriterionSchema = z.object({
+  criteria: z.string().min(1, 'Criterion cannot be empty'),
+  description: z.string().optional(),
+  maxScore: z.number().positive('Score must be positive').finite('Score must be finite'),
+});
+
 export const QuestionSkillMappingSchema = z.object({
   skillId: z.string().uuid(),
   skillName: z.string().optional(),
@@ -211,15 +217,7 @@ export const QuestionDTOSchema = z.object({
   passage: z.string().optional(),
   options: z.array(z.string()).optional(),
   correctAnswer: z.string().optional(),
-  rubric: z
-    .array(
-      z.object({
-        criteria: z.string(),
-        description: z.string().optional(),
-        maxScore: z.number(),
-      })
-    )
-    .optional(),
+  rubric: z.array(RubricCriterionSchema).optional(),
   difficulty: z.nativeEnum(Difficulty),
   level: z.nativeEnum(CEFRLevel),
   skills: z.array(QuestionSkillMappingSchema),
@@ -230,25 +228,29 @@ export const QuestionDTOSchema = z.object({
 });
 export type QuestionDTO = z.infer<typeof QuestionDTOSchema>;
 
-export const CreateQuestionRequestSchema = z.object({
+export const CreateQuestionRequestSchemaBase = z.object({
   type: z.nativeEnum(QuestionType),
   prompt: z.string().min(1),
   passage: z.string().optional(),
   options: z.array(z.string()).optional(),
   correctAnswer: z.string().optional(),
-  rubric: z
-    .array(
-      z.object({
-        criteria: z.string(),
-        description: z.string().optional(),
-        maxScore: z.number(),
-      })
-    )
-    .optional(),
+  rubric: z.array(RubricCriterionSchema).optional(),
   difficulty: z.nativeEnum(Difficulty),
   level: z.nativeEnum(CEFRLevel),
   skills: z.array(QuestionSkillMappingSchema).min(1),
   sourceMaterialId: z.string().uuid().optional(),
+});
+
+export const CreateQuestionRequestSchema = CreateQuestionRequestSchemaBase.superRefine((data, ctx) => {
+  if (data.type === QuestionType.WRITING || data.type === QuestionType.SPEAKING) {
+    if (!data.rubric || data.rubric.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Rubric is required and cannot be empty for WRITING and SPEAKING questions.',
+        path: ['rubric'],
+      });
+    }
+  }
 });
 export type CreateQuestionRequest = z.infer<typeof CreateQuestionRequestSchema>;
 
@@ -525,6 +527,7 @@ export const RecommendationDTOSchema = z.object({
   learnerConfidence: z.nativeEnum(ConfidenceLevel),
   candidates: z.array(CandidateMaterialDTOSchema),
   decisionStatus: z.nativeEnum(TeacherDecisionStatus).default(TeacherDecisionStatus.PENDING),
+  isStale: z.boolean().default(false).optional(),
   teacherDecision: z
     .object({
       id: z.string().uuid(),

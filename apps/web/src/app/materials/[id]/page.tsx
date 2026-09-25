@@ -261,12 +261,12 @@ export default function MaterialDetailPage({ params }: { params: { id: string } 
                   variant="secondary"
                   size="sm"
                   loading={actionLoading}
-                  onClick={() => handleStatusTransition('IN_REVIEW')}
+                  onClick={() => handleStatusTransition('UNDER_REVIEW')}
                 >
                   Submit for Review
                 </Button>
               )}
-              {material?.status === 'IN_REVIEW' && (
+              {material?.status === 'UNDER_REVIEW' && (
                 <>
                   <Button
                     variant="primary"

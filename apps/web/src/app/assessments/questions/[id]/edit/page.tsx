@@ -49,7 +49,12 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
   const [prepTimeSeconds, setPrepTimeSeconds] = useState(60);
   const [durationSeconds, setDurationSeconds] = useState(120);
   const [rubricCriteria, setRubricCriteria] = useState(
-    'Task Achievement (25%), Coherence & Cohesion (25%), Lexical Resource (25%), Grammatical Range (25%)'
+    JSON.stringify([
+      { criteria: 'Task Achievement', maxScore: 25 },
+      { criteria: 'Coherence & Cohesion', maxScore: 25 },
+      { criteria: 'Lexical Resource', maxScore: 25 },
+      { criteria: 'Grammatical Accuracy', maxScore: 25 }
+    ], null, 2)
   );
 
   const [saving, setSaving] = useState(false);
@@ -120,6 +125,15 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
         },
       ];
 
+      let parsedRubric;
+      if (type === 'WRITING' || type === 'SPEAKING') {
+        try {
+          parsedRubric = JSON.parse(rubricCriteria);
+        } catch (e) {
+          throw new Error('Rubric criteria must be a valid JSON array');
+        }
+      }
+
       const payload: any = {
         type,
         prompt,
@@ -130,6 +144,7 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
         skills: skillPayload,
         options: type === 'MCQ' ? options : undefined,
         correctAnswer: type === 'MCQ' ? correctAnswer : undefined,
+        rubric: parsedRubric,
       };
 
       if (isNew) {

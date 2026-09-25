@@ -4,11 +4,18 @@ import { seedDatabase } from './seed.js';
 import { sql } from 'drizzle-orm';
 import { config } from '../../shared/config.js';
 
-const LOCAL_DEVELOPMENT_DATABASE = {
-  host: 'localhost',
-  port: '5435',
-  name: 'acorn',
-};
+/** Names that are recognised as safe-to-reset targets.
+ *  The demo database (acorn) and the dedicated test database (acorn_test) are
+ *  both allowed; everything else is rejected.
+ */
+const SAFE_DATABASE_NAMES = new Set(['acorn', 'acorn_test']);
+
+/** Safe hosts – only localhost is allowed. */
+const SAFE_HOST = 'localhost';
+
+/** Safe ports – the demo stack uses 5435, but acorn_test may also run on the
+ *  Docker default 5432. Both are accepted. */
+const SAFE_PORTS = new Set(['5432', '5433', '5434', '5435']);
 
 export async function resetDatabase() {
   // 1. Guard against non-local / production execution
@@ -24,21 +31,43 @@ export async function resetDatabase() {
     throw new Error('Refusing to reset database: DATABASE_URL is invalid.');
   }
 
-  if (
-    !['postgres:', 'postgresql:'].includes(target.protocol) ||
-    target.hostname !== LOCAL_DEVELOPMENT_DATABASE.host ||
-    (target.port || '5432') !== LOCAL_DEVELOPMENT_DATABASE.port ||
-    target.pathname !== `/${LOCAL_DEVELOPMENT_DATABASE.name}`
-  ) {
+  const effectivePort = target.port || '5432';
+  const dbName = target.pathname.replace(/^\//, '');
+
+  if (!['postgres:', 'postgresql:'].includes(target.protocol)) {
+    throw new Error('Refusing to reset database: DATABASE_URL must use the postgres:// protocol.');
+  }
+
+  if (target.hostname !== SAFE_HOST) {
     throw new Error(
-      `Refusing to reset database: expected the local development database at ` +
-      `${LOCAL_DEVELOPMENT_DATABASE.host}:${LOCAL_DEVELOPMENT_DATABASE.port}/${LOCAL_DEVELOPMENT_DATABASE.name}.`
+      `Refusing to reset database: host '${target.hostname}' is not the expected localhost.`
+    );
+  }
+
+  if (!SAFE_PORTS.has(effectivePort)) {
+    throw new Error(
+      `Refusing to reset database: port '${effectivePort}' is not a recognised local development port.`
+    );
+  }
+
+  if (!SAFE_DATABASE_NAMES.has(dbName)) {
+    throw new Error(
+      `Refusing to reset database: database name '${dbName}' is not in the safe list ` +
+      `(${[...SAFE_DATABASE_NAMES].join(', ')}). ` +
+      `Set DATABASE_URL to point at 'acorn_test' for automated tests.`
     );
   }
 
   const { rows: [{ database }] } = await pool.query<{ database: string }>('SELECT current_database() AS database');
-  if (database !== LOCAL_DEVELOPMENT_DATABASE.name) {
-    throw new Error(`Refusing to reset database: connected to unexpected database '${database}'.`);
+  if (!SAFE_DATABASE_NAMES.has(database)) {
+    throw new Error(
+      `Refusing to reset database: connected to unexpected database '${database}'. ` +
+      `Only ${[...SAFE_DATABASE_NAMES].join(', ')} are recognised safe targets.`
+    );
+  }
+
+  if (process.env.NODE_ENV === 'test' && database !== 'acorn_test') {
+    throw new Error(`Refusing to reset demo database '${database}' in test mode! Tests must target 'acorn_test'.`);
   }
 
   console.log(`[db:reset] Target connection verified as local (${target.hostname}:${target.port}/${database}). Wiping application data...`);

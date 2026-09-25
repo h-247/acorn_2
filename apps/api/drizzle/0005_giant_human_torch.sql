@@ -1,0 +1,1 @@
+ALTER TABLE "recommendations" ADD COLUMN "is_stale" boolean DEFAULT false NOT NULL;--> statement-breakpoint

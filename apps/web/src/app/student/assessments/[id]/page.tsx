@@ -47,10 +47,12 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
   const [assessmentInstructions, setAssessmentInstructions] = useState<string | null>(null);
   const [timeLimitMinutes, setTimeLimitMinutes] = useState<number | null>(null);
   const [startedAt, setStartedAt] = useState<string | null>(null);
+  const [actualStartedAt, setActualStartedAt] = useState<string | null>(null);
   const [dueAt, setDueAt] = useState<string | null>(null);
   const [submittedAt, setSubmittedAt] = useState<string | null>(null);
   const [assessmentLevel, setAssessmentLevel] = useState<string | null>(null);
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
+  const autoSubmittedRef = useRef(false);
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showInstructionsModal, setShowInstructionsModal] = useState(false);
@@ -82,6 +84,7 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
       setAssessmentInstructions(sub?.assessmentInstructions || null);
       setTimeLimitMinutes(sub?.timeLimitMinutes ?? null);
       setStartedAt(sub?.startedAt || null);
+      setActualStartedAt(sub?.actualStartedAt || null);
       setDueAt(sub?.dueAt || null);
       setSubmittedAt(sub?.submittedAt || null);
       setAssessmentLevel(sub?.assessmentLevel || sub?.level || 'B1');
@@ -199,12 +202,15 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
 
   // Timer Effect
   useEffect(() => {
-    if (isReadOnly || !timeLimitMinutes || !startedAt) {
+    // G01: Use actualStartedAt instead of startedAt
+    const timerStart = actualStartedAt || startedAt;
+
+    if (loading || isReadOnly || !timeLimitMinutes || !timerStart) {
       setRemainingSeconds(null);
       return;
     }
 
-    const startTs = new Date(startedAt).getTime();
+    const startTs = new Date(timerStart).getTime();
     const totalSec = timeLimitMinutes * 60;
 
     const updateTimer = () => {
@@ -213,7 +219,8 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
       const left = Math.max(0, totalSec - elapsed);
       setRemainingSeconds(left);
 
-      if (left === 0) {
+      if (left === 0 && !autoSubmittedRef.current) {
+        autoSubmittedRef.current = true;
         // Auto-submit on expiration
         executeSubmit();
       }
@@ -222,7 +229,7 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
     updateTimer();
     const timer = setInterval(updateTimer, 1000);
     return () => clearInterval(timer);
-  }, [isReadOnly, timeLimitMinutes, startedAt, executeSubmit]);
+  }, [loading, isReadOnly, timeLimitMinutes, startedAt, actualStartedAt, executeSubmit]);
 
   const currentQ = questions[currentQIndex];
 
@@ -332,6 +339,7 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
       const payload = {
         type: 'AUDIO',
         audioUrl: result.audioUrl,
+        fileKey: result.fileKey,
         uploadedAt: new Date().toISOString(),
       };
       setAnswers((prev) => ({ ...prev, [currentQ.id]: payload }));
@@ -352,6 +360,7 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
       const payload = {
         type: 'AUDIO',
         audioUrl: result.audioUrl,
+        fileKey: result.fileKey,
         filename: file.name,
         uploadedAt: new Date().toISOString(),
       };

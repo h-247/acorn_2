@@ -232,7 +232,7 @@ export const materialPlugin: FastifyPluginAsync = async (fastify) => {
           courseId: body.courseId || undefined,
           tags: body.tags || [],
           source: body.source,
-          status: MaterialStatus.APPROVED,
+          status: MaterialStatus.DRAFT,
           currentVersionNumber: 1,
           usageCount: 0,
         })
@@ -358,7 +358,7 @@ export const materialPlugin: FastifyPluginAsync = async (fastify) => {
           courseId: body.courseId || sourceMat.courseId || undefined,
           tags: body.tags || (sourceMat.tags as string[]) || [],
           source: `Adapted from ${sourceMat.title}`,
-          status: MaterialStatus.APPROVED,
+          status: MaterialStatus.DRAFT,
           currentVersionNumber: 1,
           usageCount: 0,
         })
@@ -403,6 +403,20 @@ export const materialPlugin: FastifyPluginAsync = async (fastify) => {
   fastify.put('/:id/status', { preHandler: [authenticate, requireRole([UserRole.TEACHER, UserRole.ADMIN])] }, async (request) => {
     const { id } = request.params as { id: string };
     const { status } = z.object({ status: z.nativeEnum(MaterialStatus) }).parse(request.body);
+
+    const [current] = await db.select({ status: schema.materials.status }).from(schema.materials).where(eq(schema.materials.id, id));
+    if (!current) throw new NotFoundError('Material not found');
+
+    const validTransitions: Record<string, string[]> = {
+      'DRAFT': ['UNDER_REVIEW'],
+      'UNDER_REVIEW': ['APPROVED', 'DRAFT'],
+      'APPROVED': ['ARCHIVED'],
+      'ARCHIVED': ['APPROVED'],
+    };
+
+    if (!validTransitions[current.status]?.includes(status)) {
+      throw new BadRequestError(`Invalid state transition from ${current.status} to ${status}`);
+    }
 
     const [updated] = await db
       .update(schema.materials)
@@ -584,8 +598,12 @@ export const materialPlugin: FastifyPluginAsync = async (fastify) => {
       await assertClassAccess(user, classId);
     }
 
-    const [mat] = await db.select({ id: schema.materials.id }).from(schema.materials).where(eq(schema.materials.id, id));
+    const [mat] = await db.select({ id: schema.materials.id, status: schema.materials.status }).from(schema.materials).where(eq(schema.materials.id, id));
     if (!mat) throw new NotFoundError('Material not found');
+
+    if (mat.status !== MaterialStatus.APPROVED) {
+      throw new BadRequestError('Material must be APPROVED before it can be released to a class');
+    }
 
     await db
       .insert(schema.classMaterials)

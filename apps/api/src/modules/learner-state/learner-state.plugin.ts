@@ -154,11 +154,17 @@ export const learnerStatePlugin: FastifyPluginAsync = async (fastify) => {
       .from(schema.skills)
       .orderBy(asc(schema.skills.code));
 
-    // Fetch all evidence for this learner
+    // Profile scores, counts, and progression must use only effective evidence.
+    // Superseded rows remain available in the evidence explorer as audit history.
     const learnerEvidence = await db
       .select()
       .from(schema.learningEvidence)
-      .where(eq(schema.learningEvidence.learnerId, id))
+      .where(
+        and(
+          eq(schema.learningEvidence.learnerId, id),
+          eq(schema.learningEvidence.isSuperseded, false)
+        )
+      )
       .orderBy(asc(schema.learningEvidence.observedAt));
 
     // Group skills hierarchy

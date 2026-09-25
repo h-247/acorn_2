@@ -37,7 +37,6 @@ export const MaterialStatus = {
   DRAFT: 'DRAFT',
   UNDER_REVIEW: 'UNDER_REVIEW',
   APPROVED: 'APPROVED',
-  ACTIVE: 'ACTIVE',
   ARCHIVED: 'ARCHIVED',
 } as const;
 export type MaterialStatus = (typeof MaterialStatus)[keyof typeof MaterialStatus];

@@ -16,25 +16,7 @@ import {
 import { Check, ArrowLeft, CheckCircle2, AlertCircle, Volume2, Mic } from 'lucide-react';
 import { api } from '@/lib/api';
 
-interface RubricDimension {
-  key: string;
-  label: string;
-  max: number;
-}
 
-const WRITING_RUBRIC: RubricDimension[] = [
-  { key: 'taskAchievement', label: 'Task Achievement', max: 25 },
-  { key: 'coherence', label: 'Coherence & Cohesion', max: 25 },
-  { key: 'vocabulary', label: 'Lexical Resource', max: 25 },
-  { key: 'grammar', label: 'Grammatical Accuracy', max: 25 },
-];
-
-const SPEAKING_RUBRIC: RubricDimension[] = [
-  { key: 'fluency', label: 'Fluency & Coherence', max: 25 },
-  { key: 'pronunciation', label: 'Pronunciation', max: 25 },
-  { key: 'vocabulary', label: 'Lexical Resource', max: 25 },
-  { key: 'grammar', label: 'Grammatical Accuracy', max: 25 },
-];
 
 export default function SubmissionReviewPage({ params }: { params: { id: string } }) {
   const router = useRouter();
@@ -80,30 +62,45 @@ export default function SubmissionReviewPage({ params }: { params: { id: string 
         const qId = item.questionId;
         const q = item.question;
         const r = item.response;
-        const maxScore = item.points || (q?.type === 'WRITING' || q?.type === 'SPEAKING' ? 100 : 10);
+        let maxScore = item.points || 10;
+        // G02: If it's WRITING/SPEAKING, calculate maxScore from the rubric to override legacy points=1.0
+        if (q?.type === 'WRITING' || q?.type === 'SPEAKING') {
+          let rubricMax = 0;
+          if (q.rubric) {
+            try {
+              const parsed = typeof q.rubric === 'string' ? JSON.parse(q.rubric) : q.rubric;
+              if (Array.isArray(parsed)) {
+                rubricMax = parsed.reduce((sum: number, c: any) => sum + (c.maxScore || 0), 0);
+              }
+            } catch (e) {
+              // fallback below
+            }
+          }
+          if (rubricMax > 0) {
+            maxScore = rubricMax;
+          } else {
+            // Default legacy 4x20 rubric
+            maxScore = 80;
+          }
+        }
 
-        if (q?.type === 'WRITING') {
-          const rubric = r?.rubricScores || {
-            taskAchievement: 20,
-            coherence: 20,
-            vocabulary: 20,
-            grammar: 20,
-          };
-          const raw = Object.values(rubric).reduce((a: number, b: any) => a + Number(b), 0);
-          initialEvals[qId] = {
-            rawScore: r?.rawScore ?? raw,
-            maxScore,
-            isCorrect: r?.isCorrect ?? true,
-            rubricScores: rubric,
-            teacherFeedback: r?.teacherFeedback || '',
-          };
-        } else if (q?.type === 'SPEAKING') {
-          const rubric = r?.rubricScores || {
-            fluency: 20,
-            pronunciation: 20,
-            vocabulary: 20,
-            grammar: 20,
-          };
+        if (q?.type === 'WRITING' || q?.type === 'SPEAKING') {
+          let parsedRubric: any[] = [];
+          if (q.rubric) {
+            try {
+              parsedRubric = typeof q.rubric === 'string' ? JSON.parse(q.rubric) : q.rubric;
+            } catch (e) {}
+          }
+          if (!Array.isArray(parsedRubric)) {
+            parsedRubric = [];
+          }
+
+          const defaultRubricScores: Record<string, number> = {};
+          for (const c of parsedRubric) {
+            defaultRubricScores[c.criteria] = c.maxScore || 0;
+          }
+
+          const rubric = r?.rubricScores || defaultRubricScores;
           const raw = Object.values(rubric).reduce((a: number, b: any) => a + Number(b), 0);
           initialEvals[qId] = {
             rawScore: r?.rawScore ?? raw,
@@ -166,8 +163,7 @@ export default function SubmissionReviewPage({ params }: { params: { id: string 
   const updateRubricScore = (
     questionId: string,
     rubricKey: string,
-    val: number,
-    rubricType: 'WRITING' | 'SPEAKING'
+    val: number
   ) => {
     setEvaluations((prev) => {
       const current = prev[questionId] || { rawScore: 0, maxScore: 100 };
@@ -220,9 +216,24 @@ export default function SubmissionReviewPage({ params }: { params: { id: string 
       const items = submission.items || [];
       const responsesPayload = items.map((item: any) => {
         const qId = item.questionId;
+
+        let dynamicMax = item.points || 10;
+        if (item.question?.type === 'WRITING' || item.question?.type === 'SPEAKING') {
+          let rubricMax = 0;
+          if (item.question.rubric) {
+            try {
+              const parsed = typeof item.question.rubric === 'string' ? JSON.parse(item.question.rubric) : item.question.rubric;
+              if (Array.isArray(parsed)) {
+                rubricMax = parsed.reduce((sum: number, c: any) => sum + (c.maxScore || 0), 0);
+              }
+            } catch (e) {}
+          }
+          dynamicMax = rubricMax > 0 ? rubricMax : 80;
+        }
+
         const ev = evaluations[qId] || {
           rawScore: 0,
-          maxScore: item.points || 10,
+          maxScore: dynamicMax,
         };
         return {
           questionId: qId,
@@ -506,32 +517,40 @@ export default function SubmissionReviewPage({ params }: { params: { id: string 
                     {/* Rubric evaluation for Writing / Speaking */}
                     {(q.type === 'WRITING' || q.type === 'SPEAKING') ? (
                       <div className="space-y-3 bg-gray-50/50 p-4 rounded-xl border border-gray-100">
-                        {(q.type === 'WRITING' ? WRITING_RUBRIC : SPEAKING_RUBRIC).map((dim) => {
-                          const val = ev.rubricScores?.[dim.key] ?? 20;
-                          return (
-                            <div key={dim.key} className="space-y-1">
-                              <div className="flex justify-between text-xs font-semibold">
-                                <span>{dim.label}</span>
-                                <span className="text-[#0967F7]">{val} / {dim.max}</span>
+                        {(() => {
+                          let currentRubric: any[] = [];
+                          if (q.rubric) {
+                            try {
+                              currentRubric = typeof q.rubric === 'string' ? JSON.parse(q.rubric) : q.rubric;
+                            } catch (e) {}
+                          }
+                          if (!Array.isArray(currentRubric)) currentRubric = [];
+                          return currentRubric.map((dim) => {
+                            const val = ev.rubricScores?.[dim.criteria] ?? dim.maxScore;
+                            return (
+                              <div key={dim.criteria} className="space-y-1">
+                                <div className="flex justify-between text-xs font-semibold">
+                                  <span>{dim.criteria}</span>
+                                  <span className="text-[#0967F7]">{val} / {dim.maxScore}</span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min="0"
+                                  max={dim.maxScore}
+                                  value={val}
+                                  onChange={(e) =>
+                                    updateRubricScore(
+                                      qId,
+                                      dim.criteria,
+                                      Number(e.target.value)
+                                    )
+                                  }
+                                  className="w-full accent-[#0967F7]"
+                                />
                               </div>
-                              <input
-                                type="range"
-                                min="0"
-                                max={dim.max}
-                                value={val}
-                                onChange={(e) =>
-                                  updateRubricScore(
-                                    qId,
-                                    dim.key,
-                                    Number(e.target.value),
-                                    q.type as any
-                                  )
-                                }
-                                className="w-full accent-[#0967F7]"
-                              />
-                            </div>
-                          );
-                        })}
+                            );
+                          });
+                        })()}
 
                         <div className="pt-2 flex justify-between items-center text-xs font-bold border-t border-gray-200">
                           <span>Calculated Raw Score:</span>

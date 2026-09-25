@@ -1,0 +1,291 @@
+[
+  {
+    "id": "timer-starts-at-assignment",
+    "startedAt": "2026-09-21T11:33:14.087Z",
+    "submissionStatus": "STARTED",
+    "timeLimitMinutes": 20
+  },
+  {
+    "id": "writing-rubric-80-of-1",
+    "code": 400,
+    "data": {
+      "code": "BAD_REQUEST",
+      "message": "Invalid rawScore for question e216dfb4-4960-4196-af55-c487e1fe90a2: must be between 0 and maxScore (1)"
+    }
+  },
+  {
+    "id": "question-editor-metadata",
+    "stored": {
+      "id": "05c41243-477c-4b4c-941e-0e1ee38d9e54",
+      "type": "WRITING",
+      "prompt": "Audit WRITING question",
+      "passage": null,
+      "options": null,
+      "correctAnswer": null,
+      "rubric": null,
+      "difficulty": "MEDIUM",
+      "level": "B1",
+      "sourceMaterialId": null,
+      "usageCount": 0,
+      "createdAt": "2026-09-21T11:33:14.191Z"
+    }
+  },
+  {
+    "id": "material-submit-for-review",
+    "code": 400,
+    "data": {
+      "code": "VALIDATION_ERROR",
+      "message": "Invalid request payload",
+      "details": [
+        {
+          "received": "IN_REVIEW",
+          "code": "invalid_enum_value",
+          "options": [
+            "DRAFT",
+            "UNDER_REVIEW",
+            "APPROVED",
+            "ACTIVE",
+            "ARCHIVED"
+          ],
+          "path": [
+            "status"
+          ],
+          "message": "Invalid enum value. Expected 'DRAFT' | 'UNDER_REVIEW' | 'APPROVED' | 'ACTIVE' | 'ARCHIVED', received 'IN_REVIEW'"
+        }
+      ]
+    }
+  },
+  {
+    "id": "approved-material-excluded-from-candidates",
+    "materialStatus": "APPROVED",
+    "targetSkill": "90ab4d50-85cb-4e87-9671-59528366a9fa",
+    "candidates": [
+      {
+        "materialId": "77777777-7777-7777-7777-777777777702",
+        "title": "IELTS Speaking Part 2: Habit and Environment",
+        "type": "ACTIVITY",
+        "level": "B1",
+        "estimatedMinutes": 15,
+        "action": "NO_MATCH",
+        "matchReason": "No existing materials currently match Audit reasoning skill. Author new material in library.",
+        "tags": [
+          "ielts",
+          "reading"
+        ],
+        "previouslyUsedCount": 2
+      }
+    ]
+  },
+  {
+    "id": "regrade-double-evidence",
+    "before": [
+      {
+        "type": "QUESTION_RESULT",
+        "score": 1
+      }
+    ],
+    "after": [
+      {
+        "type": "QUESTION_RESULT",
+        "score": 1
+      },
+      {
+        "type": "RUBRIC_RESULT",
+        "score": 0
+      }
+    ],
+    "profile": 50
+  },
+  {
+    "id": "stale-not-regenerated",
+    "sameId": true,
+    "status": "STALE",
+    "currentScore": 1
+  },
+  {
+    "id": "accept-stale",
+    "code": 200,
+    "data": {
+      "id": "17d32600-472c-4e6b-9e94-3395f3cff025",
+      "recommendationId": "510f1e8d-d10f-4621-bf86-c4331a628bc0",
+      "decision": "ACCEPT",
+      "teacherNotes": null,
+      "selectedMaterialId": "1e01ad37-01b1-4383-bf75-0888d81e268a",
+      "decidedAt": "2026-09-21T11:33:14.651Z",
+      "teacherId": "11111111-1111-1111-1111-111111111111"
+    }
+  },
+  {
+    "id": "accept-then-assign",
+    "code": 400,
+    "data": {
+      "code": "BAD_REQUEST",
+      "message": "Recommendation already accepted with different parameters (assessmentId mismatch)"
+    }
+  },
+  {
+    "id": "empty-next-activity",
+    "code": 200,
+    "data": {
+      "success": true,
+      "recommendationId": "dc0079c3-7d62-421e-a61b-331b6a39cc2c",
+      "decisionId": "c40807b5-ebde-491d-bd6e-c3de9ebac035",
+      "assignmentId": null,
+      "materialId": null
+    }
+  },
+  {
+    "id": "multi-learner-assignment",
+    "storedLearnerId": "45720528-3931-406d-a8e8-c8a35800c62b",
+    "secondLearnerAssessment": {
+      "code": 403,
+      "data": {
+        "code": "FORBIDDEN",
+        "message": "This assessment is not assigned to you"
+      }
+    },
+    "secondLearnerSubmissionStatus": 200
+  },
+  {
+    "id": "teacher-scope-autosave",
+    "get": {
+      "code": 403,
+      "data": {
+        "code": "FORBIDDEN",
+        "message": "You do not have permission to access this submission"
+      }
+    },
+    "save": {
+      "code": 200,
+      "data": {
+        "success": true,
+        "savedAt": "2026-09-21T11:33:15.103Z"
+      }
+    }
+  },
+  {
+    "id": "closed-assessment-still-submit",
+    "code": 200,
+    "data": {
+      "id": "700ad8c9-c23a-4135-bdb3-245deac02a7f",
+      "assignmentId": "acbfeeb8-bfc3-432c-84d3-80e8f2ee8fc2",
+      "assessmentId": "1bab4ec5-aeeb-427f-a7cb-c2924fe0535d",
+      "learnerId": "45720528-3931-406d-a8e8-c8a35800c62b",
+      "status": "EVALUATED",
+      "startedAt": "2026-09-21T11:33:14.955Z",
+      "submittedAt": "2026-09-21T11:33:15.134Z",
+      "evaluatedAt": "2026-09-21T11:33:15.134Z",
+      "evaluatorId": null,
+      "evaluatorType": "AUTO",
+      "overallScore": 100,
+      "maxPossibleScore": 100,
+      "teacherFeedback": null,
+      "isLate": false,
+      "lateMinutes": 0
+    }
+  },
+  {
+    "id": "audio-file-before-questionId",
+    "code": 200,
+    "data": {
+      "success": true,
+      "audioUrl": "http://localhost:8333/acorn-audit-20260921/submissions/df593bc4-7c03-4dd4-bfeb-32376f30d7d1/baedc304-dfba-44a6-b0bd-67922cd071a7-1789990395286.wav",
+      "questionId": "baedc304-dfba-44a6-b0bd-67922cd071a7",
+      "savedAt": "2026-09-21T11:33:15.333Z"
+    }
+  },
+  {
+    "id": "publish-invalid-mcq",
+    "createdQuestion": "37b16480-041d-4dfe-9756-fcb57fb29e78",
+    "assessmentStatus": "PUBLISHED"
+  },
+  {
+    "id": "newly-opened-expired-submission",
+    "status": "STARTED",
+    "startedAt": "2026-09-21T11:03:15.510Z",
+    "timeLimitMinutes": 20
+  },
+  {
+    "id": "active-candidate-cannot-assign",
+    "candidates": [
+      {
+        "materialId": "1e01ad37-01b1-4383-bf75-0888d81e268a",
+        "title": "Audit approved target material",
+        "type": "ARTICLE",
+        "level": "B1",
+        "estimatedMinutes": 10,
+        "action": "REUSE",
+        "matchReason": "Direct skill match for Audit reasoning skill from teacher library.",
+        "tags": [
+          "ielts",
+          "reading"
+        ],
+        "previouslyUsedCount": 0
+      }
+    ],
+    "assignment": {
+      "code": 400,
+      "data": {
+        "code": "BAD_REQUEST",
+        "message": "Cannot assign a material that is not approved"
+      }
+    }
+  },
+  {
+    "id": "correction-leaves-old-rec",
+    "recScore": 1,
+    "decisionStatus": "ACCEPT",
+    "profileScore": 0
+  },
+  {
+    "id": "teacher-scope-submit",
+    "code": 200,
+    "data": {
+      "id": "525f91e5-b649-45af-af8b-ddd9436c984e",
+      "assignmentId": "c3520626-0c11-4185-a416-f0906b203b50",
+      "assessmentId": "ae632179-df5b-4b5d-8f66-8fe9bea451de",
+      "learnerId": "494c90c0-1b0d-4108-9bf8-c2a75dbb8bd4",
+      "status": "EVALUATED",
+      "startedAt": "2026-09-21T11:03:15.510Z",
+      "submittedAt": "2026-09-21T11:33:15.870Z",
+      "evaluatedAt": "2026-09-21T11:33:15.870Z",
+      "evaluatorId": null,
+      "evaluatorType": "AUTO",
+      "overallScore": 100,
+      "maxPossibleScore": 100,
+      "teacherFeedback": null,
+      "isLate": true,
+      "lateMinutes": 11
+    }
+  },
+  {
+    "id": "draft-editable-by-unrelated-teacher",
+    "code": 200,
+    "data": {
+      "id": "c9cfb93c-69de-4d65-ba28-bf5b30c544b1",
+      "title": "Changed by unrelated teacher",
+      "description": null,
+      "instructions": null,
+      "level": "B1",
+      "status": "DRAFT",
+      "timeLimitMinutes": 20,
+      "createdBy": "11111111-1111-1111-1111-111111111111",
+      "createdAt": "2026-09-21T11:33:15.908Z",
+      "updatedAt": "2026-09-21T11:33:15.929Z"
+    }
+  },
+  {
+    "id": "speaking-file-key-lost-on-submit",
+    "hadFileKey": true,
+    "hasFileKey": false,
+    "playbackUrlSigned": false,
+    "playbackHttpStatus": 403
+  },
+  {
+    "id": "student-material-list-missing-files",
+    "uploadCode": 201,
+    "listHasFiles": false,
+    "detailFileCount": 1,
+    "usageCountAfterRelease": 0
+  }
+]

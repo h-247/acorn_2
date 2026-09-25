@@ -1,0 +1,23 @@
+{
+  "signInSnapshot": "🌰\nAcorn\n\nEnglish Language Center\n\nSmall steps,\nlasting progress.\n\nWelcome to the Acorn Learning Portal. Fostering English proficiency through structured coursework, personalized teacher guidance, and targeted practice.\n\nComprehensive Curriculum\n\nIEL",
+  "autoSubmitOnFirstOpen": {
+    "http": 200,
+    "body": {
+      "id": "5cc549ec-6571-4970-812b-8ca04175f4fc",
+      "assignmentId": "18c53761-94e4-45e8-82d4-c719e2c318c5",
+      "assessmentId": "46691fd2-a5b4-4cc1-bdd3-ba217f798567",
+      "learnerId": "12c51a2e-ac28-4dfd-9e70-a7c130050a6e",
+      "status": "SUBMITTED",
+      "startedAt": "2026-09-21T11:03:16.293Z",
+      "submittedAt": "2026-09-21T11:35:33.238Z",
+      "evaluatorId": null,
+      "evaluatorType": "AUTO",
+      "overallScore": null,
+      "maxPossibleScore": 100,
+      "teacherFeedback": null,
+      "isLate": true,
+      "lateMinutes": 13
+    }
+  },
+  "reviewSnapshot": "🌰\nAcorn\nby Agentivium AI\nHome\nMaterials\nAssessments\nClasses\nLearners\nHelp & Support\nSign Out\nMT\nMs. Taylor\nTeacher\nSubmissions\n›\nReview\nSubmission Review & Grading\nFinalize evaluation ›\n\nReview answers, listen to spoken responses, adjust auto-grading, and score rubrics.\n\nAssessment\nAudit assessment\nSubmitted: 9/21/2026\nLearner\nAudit Writing\nCalculated Score\n80 / 1 (8000%)\nStatus\nSUBMITTED\nOverall Assessment Feedback\nQuestion 1\nWRITING\nMEDIUM\nPoints:\n80 / 1\nAudit WRITING question\nLEARNER RESPONSE\nA real student essay\nWord count: 4 words\nGRADING & FEEDBACK\nTask Achievement\n20 / 25\nCoherence & Cohesion\n20 / 25\nLexical Resource\n20 / 25\nGrammatical Accuracy\n20 / 25\nCalculated Raw Score:\n80 / 1\nQuestion Feedback"
+}

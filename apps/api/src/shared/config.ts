@@ -18,3 +18,15 @@ export const config = {
     forcePathStyle: process.env.OBJECT_STORAGE_FORCE_PATH_STYLE !== 'false',
   },
 };
+
+if (process.env.VITEST || process.env.NODE_ENV === 'test') {
+  const dbNameMatch = config.databaseUrl.match(/\/\/.*\/([^\/?#]+)/);
+  const dbName = dbNameMatch ? dbNameMatch[1] : '';
+
+  if (dbName !== 'acorn_test') {
+    throw new Error(`Refusing to run tests against database "${dbName}". Must use exactly "acorn_test".`);
+  }
+  if (config.objectStorage.bucket !== 'acorn-test') {
+    throw new Error(`Refusing to run tests against bucket "${config.objectStorage.bucket}". Must use exactly "acorn-test".`);
+  }
+}

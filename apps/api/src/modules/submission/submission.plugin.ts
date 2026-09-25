@@ -1,7 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { db } from '../../infrastructure/persistence/db.js';
 import * as schema from '../../infrastructure/persistence/schema.js';
-import { eq, and, desc, inArray } from 'drizzle-orm';
+import { eq, and, desc, inArray, sql, isNull } from 'drizzle-orm';
 import { authenticate, requireRole, assertLearnerAccess, AuthContext } from '../../infrastructure/auth/auth.js';
 import {
   SubmissionStatus,
@@ -242,6 +242,30 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
       .from(schema.submissionResponses)
       .where(eq(schema.submissionResponses.submissionId, sub.id));
 
+    // G01: When the learner first opens an unstarted attempt, record the actual start time.
+    // This is idempotent: subsequent opens do NOT reset the timer.
+    if (
+      user.role === UserRole.STUDENT &&
+      !sub.actualStartedAt &&
+      (sub.status === SubmissionStatus.STARTED || sub.status === SubmissionStatus.IN_PROGRESS)
+    ) {
+      const now = new Date();
+      const [updated] = await db
+        .update(schema.submissions)
+        .set({ actualStartedAt: now })
+        .where(
+          and(
+            eq(schema.submissions.id, sub.id),
+            // Double-check still null to avoid race conditions
+            isNull(schema.submissions.actualStartedAt)
+          )
+        )
+        .returning();
+      if (updated) {
+        sub = { ...sub, actualStartedAt: updated.actualStartedAt };
+      }
+    }
+
     // Also get full question data for review/player
     const assessmentItems = await db
       .select()
@@ -260,6 +284,8 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
     return {
       ...sub,
       startedAt: sub.startedAt.toISOString(),
+      // actualStartedAt is the authoritative timer start for the frontend
+      actualStartedAt: sub.actualStartedAt ? sub.actualStartedAt.toISOString() : null,
       submittedAt: sub.submittedAt ? sub.submittedAt.toISOString() : null,
       evaluatedAt: sub.evaluatedAt ? sub.evaluatedAt.toISOString() : null,
       dueAt: assignment?.dueAt ? assignment.dueAt.toISOString() : null,
@@ -297,18 +323,20 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
     };
   });
 
+
   // 3. Student Autosave
   fastify.post('/:id/autosave', { preHandler: [authenticate] }, async (request) => {
     const { id } = request.params as { id: string };
-    const body = SaveResponseRequestSchema.parse(request.body);
     const user = request.user!;
 
     const [sub] = await db.select().from(schema.submissions).where(eq(schema.submissions.id, id));
     if (!sub) throw new NotFoundError('Submission not found');
 
-    if (user.role === UserRole.STUDENT && sub.learnerId !== user.id) {
-      throw new ForbiddenError('You can only autosave your own submission');
+    if (user.id !== sub.learnerId) {
+      throw new ForbiddenError('Only the owner student can mutate this submission');
     }
+
+    const body = SaveResponseRequestSchema.parse(request.body);
 
     if (sub.status === SubmissionStatus.SUBMITTED || sub.status === SubmissionStatus.EVALUATED) {
       throw new BadRequestError('Cannot autosave a submitted or evaluated assessment');
@@ -366,13 +394,14 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
     const [sub] = await db.select().from(schema.submissions).where(eq(schema.submissions.id, id));
     if (!sub) throw new NotFoundError('Submission not found');
 
-    if (user.role === UserRole.STUDENT && sub.learnerId !== user.id) {
-      throw new ForbiddenError('You can only upload audio for your own submission');
+    if (user.id !== sub.learnerId) {
+      throw new ForbiddenError('Only the owner student can mutate this submission');
     }
 
     if (sub.status === SubmissionStatus.SUBMITTED || sub.status === SubmissionStatus.EVALUATED) {
       throw new BadRequestError('Cannot modify a submitted or evaluated assessment');
     }
+
 
     const data = await request.file();
     if (!data) throw new BadRequestError('Audio file is required');
@@ -485,6 +514,7 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
     return reply.status(200).send({
       success: true,
       audioUrl: uploadedUrl,
+      fileKey,
       questionId,
       savedAt: now.toISOString(),
     });
@@ -537,9 +567,10 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
     const [sub] = await db.select().from(schema.submissions).where(eq(schema.submissions.id, id));
     if (!sub) throw new NotFoundError('Submission not found');
 
-    if (user.role === UserRole.STUDENT && sub.learnerId !== user.id) {
-      throw new ForbiddenError('You can only submit your own assessment');
+    if (user.id !== sub.learnerId) {
+      throw new ForbiddenError('Only the owner student can mutate this submission');
     }
+
 
     if (sub.status === SubmissionStatus.SUBMITTED || sub.status === SubmissionStatus.EVALUATED) {
       // Idempotent: return existing submission
@@ -587,7 +618,8 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
 
     if (assessment?.timeLimitMinutes) {
       const maxDurationMs = assessment.timeLimitMinutes * 60 * 1000;
-      const elapsedMs = now.getTime() - new Date(sub.startedAt).getTime();
+      const startTime = sub.actualStartedAt ? new Date(sub.actualStartedAt) : new Date(sub.startedAt);
+      const elapsedMs = now.getTime() - startTime.getTime();
       const diff = elapsedMs - maxDurationMs;
       if (diff > GRACE_PERIOD_MS) {
         isLate = true;
@@ -647,12 +679,37 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
           totalEarnedPoints += rawScore;
         }
 
+        // G03: Preserve server-stored fileKey for SPEAKING questions.
+        // The client payload does NOT include fileKey (only audioUrl), so we must
+        // merge the existing DB record to keep the fileKey intact.
+        let effectivePayload = ans.responsePayload;
+        if (question?.type === 'SPEAKING') {
+          const [existingResp] = await tx
+            .select({ responsePayload: schema.submissionResponses.responsePayload })
+            .from(schema.submissionResponses)
+            .where(
+              and(
+                eq(schema.submissionResponses.submissionId, id),
+                eq(schema.submissionResponses.questionId, ans.questionId)
+              )
+            );
+          const existing = existingResp?.responsePayload as Record<string, any> | null;
+          if (existing?.fileKey) {
+            // Merge: keep the server-authoritative fileKey, update other fields from client
+            effectivePayload = {
+              ...(typeof ans.responsePayload === 'object' && ans.responsePayload !== null ? ans.responsePayload : {}),
+              fileKey: existing.fileKey,
+              type: 'AUDIO',
+            };
+          }
+        }
+
         await tx
           .insert(schema.submissionResponses)
           .values({
             submissionId: id,
             questionId: ans.questionId,
-            responsePayload: ans.responsePayload,
+            responsePayload: effectivePayload,
             isCorrect,
             rawScore,
             normalizedScore,
@@ -661,7 +718,7 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
           .onConflictDoUpdate({
             target: [schema.submissionResponses.submissionId, schema.submissionResponses.questionId],
             set: {
-              responsePayload: ans.responsePayload,
+              responsePayload: effectivePayload,
               isCorrect,
               rawScore,
               normalizedScore,
@@ -669,6 +726,7 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
             },
           });
       }
+
 
       const isFullyAutoGraded = autoGradableCount === items.length && items.length > 0;
       const overallScore = isFullyAutoGraded
@@ -741,17 +799,6 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
         for (const skillId of affectedSkillIds) {
           await recomputeLearnerSkillState(tx, sub.learnerId, skillId);
         }
-
-        // Mark pending recommendations stale
-        await tx
-          .update(schema.recommendations)
-          .set({ decisionStatus: 'STALE' })
-          .where(
-            and(
-              eq(schema.recommendations.learnerId, sub.learnerId),
-              eq(schema.recommendations.decisionStatus, 'PENDING')
-            )
-          );
       }
 
       await tx.insert(schema.auditEvents).values({
@@ -887,6 +934,21 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
 
         for (const qs of skillsForQ) {
           affectedSkillIds.add(qs.skillId);
+
+          // G08: Mark any existing QUESTION_RESULT (auto-grade) as superseded
+          // so it is excluded from effective learner state computation.
+          await tx
+            .update(schema.learningEvidence)
+            .set({ isSuperseded: true })
+            .where(
+              and(
+                eq(schema.learningEvidence.submissionId, sub.id),
+                eq(schema.learningEvidence.questionId, r.questionId),
+                eq(schema.learningEvidence.skillId, qs.skillId),
+                eq(schema.learningEvidence.evidenceType, EvidenceType.QUESTION_RESULT)
+              )
+            );
+
           await tx
             .insert(schema.learningEvidence)
             .values({
@@ -915,26 +977,17 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
                 normalizedScore: normScore,
                 observedValue: JSON.stringify(r.rubricScores || r.rawScore),
                 observedAt: now,
+                isSuperseded: false, // ensure the RUBRIC_RESULT itself is never superseded
               },
             });
         }
       }
 
+
       // Recompute learner skill states
       for (const skillId of affectedSkillIds) {
         await recomputeLearnerSkillState(tx, sub.learnerId, skillId);
       }
-
-      // Mark pending recommendations stale
-      await tx
-        .update(schema.recommendations)
-        .set({ decisionStatus: 'STALE' })
-        .where(
-          and(
-            eq(schema.recommendations.learnerId, sub.learnerId),
-            eq(schema.recommendations.decisionStatus, 'PENDING')
-          )
-        );
 
       const rawOverall = totalMax > 0 ? Math.round((totalRaw / totalMax) * 100) : 0;
       const overallScore = Math.min(100, Math.max(0, rawOverall));

@@ -366,7 +366,7 @@ describe('Security, Authorization, and Integrity Fixes', () => {
     });
 
     it('rejects assigning next activity on STALE recommendation with 400', async () => {
-      const recId = await createTestRecommendation({ decisionStatus: 'STALE' });
+      const recId = await createTestRecommendation({ isStale: true });
       const res = await app.inject({
         method: 'POST',
         url: `/api/recommendations/${recId}/assign-next-activity`,
@@ -391,6 +391,48 @@ describe('Security, Authorization, and Integrity Fixes', () => {
       });
       expect(res.statusCode).toBe(400);
       expect(JSON.parse(res.body).message).toContain('REJECT');
+    });
+
+    it('reuses an existing ACCEPT decision when assigning the next activity', async () => {
+      const recId = await createTestRecommendation({
+        decisionStatus: TeacherDecisionStatus.ACCEPT,
+        recommendedActionText: 'Keep the reviewed recommendation text',
+      });
+      const existingDecisionId = randomUUID();
+      await db.insert(schema.teacherDecisions).values({
+        id: existingDecisionId,
+        recommendationId: recId,
+        decision: TeacherDecisionStatus.ACCEPT,
+        teacherNotes: 'Reviewed before curriculum assignment',
+        selectedMaterialId: SEED_IDS.matUrbanFarming,
+        teacherId: SEED_IDS.teacherTaylor,
+      });
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/recommendations/${recId}/assign-next-activity`,
+        headers: { authorization: `Bearer ${teacherTaylorToken}` },
+        payload: {
+          classId: SEED_IDS.classIeltsA,
+          materialId: SEED_IDS.matUrbanFarming,
+          instructions: 'Separate activity instructions',
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).decisionId).toBe(existingDecisionId);
+
+      const decisions = await db
+        .select()
+        .from(schema.teacherDecisions)
+        .where(eq(schema.teacherDecisions.recommendationId, recId));
+      expect(decisions).toHaveLength(1);
+
+      const [storedRecommendation] = await db
+        .select()
+        .from(schema.recommendations)
+        .where(eq(schema.recommendations.id, recId));
+      expect(storedRecommendation.recommendedActionText).toBe('Keep the reviewed recommendation text');
     });
 
     it('rejects assigning next activity when classId is omitted and learner has multiple classes taught by teacher with 400', async () => {

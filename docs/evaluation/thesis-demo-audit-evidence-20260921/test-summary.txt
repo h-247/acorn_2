@@ -1,0 +1,29 @@
+Minimal IELTS seed completed successfully!
+
+ ✓ tests/integration/storage.test.ts (2 tests) 708ms
+ ✓ tests/unit/normalization.test.ts (1 test) 2ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/security-fixes.test.ts > Security, Authorization, and Integrity Fixes
+Error: Refusing to reset database: expected the local development database at localhost:5435/acorn.
+ ❯ Module.resetDatabase src/infrastructure/persistence/reset-db.ts:33:11
+     31|     target.pathname !== `/${LOCAL_DEVELOPMENT_DATABASE.name}`
+     32|   ) {
+     33|     throw new Error(
+       |           ^
+     34|       `Refusing to reset database: expected the local development data…
+     35|       `${LOCAL_DEVELOPMENT_DATABASE.host}:${LOCAL_DEVELOPMENT_DATABASE…
+ ❯ tests/integration/security-fixes.test.ts:222:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 11 passed (12)
+      Tests  118 passed (118)
+   Start at  18:27:55
+   Duration  31.93s (transform 596ms, setup 0ms, collect 14.61s, tests 12.40s, environment 2ms, prepare 1.99s)
+
+C:\Users\toanv\OneDrive\Desktop\Codex - acorn\apps\api:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @acorn/api@0.1.0 test: `vitest run`
+Exit status 1
+[ELIFECYCLE] Test failed. See above for more details.

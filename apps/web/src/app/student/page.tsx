@@ -199,6 +199,8 @@ export default function StudentHomePage() {
                     <div className="text-xs text-[#656C79] leading-relaxed" data-testid="rec-rationale">
                       {Array.isArray(recommendation.rationale) && recommendation.rationale.length > 0 ? (
                         <p>{recommendation.rationale.join(' ')}</p>
+                      ) : recommendation.rationale?.texts && Array.isArray(recommendation.rationale.texts) ? (
+                        <p>{recommendation.rationale.texts.join(' ')}</p>
                       ) : (
                         <p>
                           {typeof recommendation.rationale === 'string'

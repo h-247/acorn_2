@@ -78,6 +78,11 @@ export const SEED_IDS = {
 export const seed = seedDatabase;
 
 export async function seedDatabase() {
+  const { rows: [{ database }] } = await pool.query<{ database: string }>('SELECT current_database() AS database');
+  if (process.env.NODE_ENV === 'test' && database !== 'acorn_test') {
+    throw new Error(`Refusing to seed demo database '${database}' in test mode! Tests must target 'acorn_test'.`);
+  }
+
   console.log('Starting minimal IELTS database seed...');
   const defaultPasswordHash = hashPassword('password123');
   const adminPasswordHash = hashPassword('admin123');
@@ -310,7 +315,7 @@ export async function seedDatabase() {
       tags: ['speaking', 'ielts', 'b1', 'cue-card'],
       estimatedMinutes: 15,
       source: 'Teacher Library • Cambridge English',
-      status: MaterialStatus.ACTIVE,
+      status: MaterialStatus.APPROVED,
       currentVersionNumber: 1,
       usageCount: 2,
       content: `Describe an environmental law or habit you would like to see introduced in your hometown.\nYou should say:\n- What this law or habit is\n- How it would be carried out\n- What problems it would address\nand explain whether you think people would support it.`,
@@ -346,7 +351,7 @@ export async function seedDatabase() {
       tags: ['vocabulary', 'ielts', 'b1', 'ecology'],
       estimatedMinutes: 15,
       source: 'Teacher Library • Lexical Resource',
-      status: MaterialStatus.ACTIVE,
+      status: MaterialStatus.APPROVED,
       currentVersionNumber: 1,
       usageCount: 2,
       content: `Essential collocation list and lexical exercises for IELTS Academic Band 5.0 to 6.0 focusing on environmental sustainability and ecological stewardship.`,
@@ -816,8 +821,7 @@ export async function seedDatabase() {
 
   for (const st of skillStates) {
     await db
-      .insert(schema.learnerSkillStates)
-      .values(st)
+      .insert(schema.learnerSkillStates).values(st)
       .onConflictDoUpdate({
         target: [schema.learnerSkillStates.learnerId, schema.learnerSkillStates.skillId],
         set: { score: st.score, confidence: st.confidence, evidenceCount: st.evidenceCount },

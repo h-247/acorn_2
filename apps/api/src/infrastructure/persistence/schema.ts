@@ -212,6 +212,10 @@ export const submissions = pgTable('submissions', {
   learnerId: uuid('learner_id').references(() => users.id).notNull(),
   status: text('status').default('STARTED').notNull(),
   startedAt: timestamp('started_at').defaultNow().notNull(),
+  /** Null until the learner explicitly opens and begins the attempt.
+   *  All timer calculations use this field, not startedAt.
+   *  startedAt is retained for audit only. */
+  actualStartedAt: timestamp('actual_started_at'),
   submittedAt: timestamp('submitted_at'),
   evaluatedAt: timestamp('evaluated_at'),
   evaluatorId: uuid('evaluator_id').references(() => users.id),
@@ -226,6 +230,7 @@ export const submissions = pgTable('submissions', {
   assignmentIdx: index('submissions_assignment_idx').on(table.assignmentId),
   statusIdx: index('submissions_status_idx').on(table.status),
 }));
+
 
 export const submissionResponses = pgTable('submission_responses', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -257,6 +262,10 @@ export const learningEvidence = pgTable('learning_evidence', {
   weight: real('weight').default(1.0).notNull(),
   observedAt: timestamp('observed_at').defaultNow().notNull(),
   isCorrected: boolean('is_corrected').default(false).notNull(),
+  /** When a teacher evaluation supersedes an earlier auto-grade for the same
+   *  question/skill, the earlier row is flagged isSuperseded=true and excluded
+   *  from effective score computation. Audit queries may still read it. */
+  isSuperseded: boolean('is_superseded').default(false).notNull(),
   correctionNotes: text('correction_notes'),
   sourceMaterialId: uuid('source_material_id').references(() => materials.id),
 }, (table) => ({
@@ -265,6 +274,7 @@ export const learningEvidence = pgTable('learning_evidence', {
   skillIdx: index('learning_evidence_skill_idx').on(table.skillId),
   observedAtIdx: index('learning_evidence_observed_at_idx').on(table.observedAt),
 }));
+
 
 export const learnerSkillStates = pgTable('learner_skill_states', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -293,6 +303,7 @@ export const recommendations = pgTable('recommendations', {
   learnerCurrentScore: real('learner_current_score'),
   learnerConfidence: text('learner_confidence').notNull(),
   decisionStatus: text('decision_status').default('PENDING').notNull(),
+  isStale: boolean('is_stale').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => ({
   learnerIdx: index('recommendations_learner_idx').on(table.learnerId),

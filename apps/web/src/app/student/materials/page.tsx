@@ -78,9 +78,8 @@ export default function StudentMaterialsPage() {
       setUser(currentUser);
 
       const data = await api.getMaterials();
-      // Filter materials to APPROVED or ACTIVE
       const approved = (data || []).filter(
-        (m: any) => m.status === 'APPROVED' || m.status === 'ACTIVE'
+        (m: any) => m.status === 'APPROVED'
       );
       setMaterials(approved);
     } catch (err: any) {
@@ -240,10 +239,18 @@ export default function StudentMaterialsPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setSelectedMaterial(mat)}
+                    onClick={async () => {
+                      // G04: Fetch full detail so `files` and `content` are available in the drawer
+                      try {
+                        const detail = await api.getMaterial(mat.id);
+                        setSelectedMaterial(detail ?? mat);
+                      } catch {
+                        setSelectedMaterial(mat);
+                      }
+                    }}
                     icon={<BookOpen className="w-3.5 h-3.5" />}
                   >
-                    Read & Study
+                    Read &amp; Study
                   </Button>
                 </div>
               </Card>

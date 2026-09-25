@@ -5,6 +5,7 @@ import { db } from '../../src/infrastructure/persistence/db.js';
 import * as schema from '../../src/infrastructure/persistence/schema.js';
 import { generateToken } from '../../src/infrastructure/auth/auth.js';
 import { UserRole, SubmissionStatus, QuestionType, AssessmentStatus } from '@acorn/contracts';
+import { and, eq } from 'drizzle-orm';
 
 function createMultipartBuffer(
   boundary: string,
@@ -136,6 +137,22 @@ describe('Student Workflow & Feature Integrity', () => {
   });
 
   it('2. GET /api/submissions/:id strips correctAnswer when test is not yet evaluated for student', async () => {
+    const [beforeOpen] = await db
+      .select({ actualStartedAt: schema.submissions.actualStartedAt })
+      .from(schema.submissions)
+      .where(eq(schema.submissions.id, activeSubmissionId));
+    expect(beforeOpen.actualStartedAt).toBeNull();
+
+    const teacherPreview = await app.inject({
+      method: 'GET',
+      url: `/api/submissions/${activeSubmissionId}`,
+      headers: {
+        authorization: `Bearer ${teacherTaylorToken}`,
+      },
+    });
+    expect(teacherPreview.statusCode).toBe(200);
+    expect(teacherPreview.json().actualStartedAt).toBeNull();
+
     const res = await app.inject({
       method: 'GET',
       url: `/api/submissions/${activeSubmissionId}`,
@@ -151,6 +168,17 @@ describe('Student Workflow & Feature Integrity', () => {
     expect(sub).toHaveProperty('timeLimitMinutes');
     expect(sub).toHaveProperty('dueAt');
     expect(sub).toHaveProperty('assessmentInstructions');
+    expect(sub.actualStartedAt).toBeTruthy();
+
+    const secondOpen = await app.inject({
+      method: 'GET',
+      url: `/api/submissions/${activeSubmissionId}`,
+      headers: {
+        authorization: `Bearer ${studentEmmaToken}`,
+      },
+    });
+    expect(secondOpen.statusCode).toBe(200);
+    expect(secondOpen.json().actualStartedAt).toBe(sub.actualStartedAt);
 
     // While test is in progress, correct answers MUST be null for students
     expect(sub.items.length).toBeGreaterThan(0);
@@ -210,7 +238,49 @@ describe('Student Workflow & Feature Integrity', () => {
     const body = JSON.parse(res.body);
     expect(body.success).toBe(true);
     expect(body.audioUrl).toBeDefined();
+    expect(body.fileKey).toBeDefined();
     expect(body.questionId).toBe(speakingQId);
+
+    // Submit the client-shaped payload without fileKey. The API must preserve
+    // the authoritative storage key written by the upload endpoint.
+    const submitRes = await app.inject({
+      method: 'POST',
+      url: `/api/submissions/${speakingSubId}/submit`,
+      headers: {
+        authorization: `Bearer ${studentEmmaToken}`,
+      },
+      payload: {
+        submissionId: speakingSubId,
+        answers: [
+          {
+            questionId: speakingQId,
+            responsePayload: { type: 'AUDIO', audioUrl: body.audioUrl },
+          },
+        ],
+      },
+    });
+    expect(submitRes.statusCode).toBe(200);
+
+    const [storedResponse] = await db
+      .select({ responsePayload: schema.submissionResponses.responsePayload })
+      .from(schema.submissionResponses)
+      .where(
+        and(
+          eq(schema.submissionResponses.submissionId, speakingSubId),
+          eq(schema.submissionResponses.questionId, speakingQId)
+        )
+      );
+    expect((storedResponse.responsePayload as any).fileKey).toBe(body.fileKey);
+
+    const playbackRes = await app.inject({
+      method: 'GET',
+      url: `/api/submissions/${speakingSubId}/audio/${speakingQId}`,
+      headers: {
+        authorization: `Bearer ${teacherTaylorToken}`,
+      },
+    });
+    expect(playbackRes.statusCode).toBe(200);
+    expect(playbackRes.json().audioUrl).toContain(body.fileKey);
   });
 
   it('5. Blocks student from uploading audio to another student submission with 403', async () => {
