@@ -169,6 +169,7 @@ export const auditPlugin: FastifyPluginAsync = async (fastify) => {
         recommendationsCount,
         acceptedDecisionsCount,
         prepEvents,
+        pendingRecommendationsCount,
       ] = await Promise.all([
         db.select({
           id: schema.materials.id,
@@ -178,7 +179,10 @@ export const auditPlugin: FastifyPluginAsync = async (fastify) => {
         db.select({ count: sql<number>`count(*)::int` }).from(schema.submissions),
         db.select({ count: sql<number>`count(*)::int` }).from(schema.learningEvidence),
         db.select({ count: sql<number>`count(*)::int` }).from(schema.recommendations),
-        db.select({ count: sql<number>`count(*)::int` })
+        // Distinct recommendations, not decision rows. A teacher who records
+        // ACCEPT twice on one recommendation leaves two rows, and counting those
+        // against the number of recommendations pushed the rate past 100%.
+        db.select({ count: sql<number>`count(DISTINCT ${schema.teacherDecisions.recommendationId})::int` })
           .from(schema.teacherDecisions)
           .where(eq(schema.teacherDecisions.decision, 'ACCEPT')),
         db.select({ metadata: schema.auditEvents.metadata })
@@ -189,6 +193,17 @@ export const auditPlugin: FastifyPluginAsync = async (fastify) => {
               'MATERIAL_ADAPTED',
               'ASSESSMENT_CREATED',
             ])
+          ),
+        // What is genuinely still waiting on a teacher. The dashboard used to
+        // derive this as total minus accepted, which quietly counted REJECT,
+        // MODIFY and stale recommendations as outstanding work.
+        db.select({ count: sql<number>`count(*)::int` })
+          .from(schema.recommendations)
+          .where(
+            and(
+              eq(schema.recommendations.decisionStatus, 'PENDING'),
+              eq(schema.recommendations.isStale, false)
+            )
           ),
       ]);
 
@@ -236,6 +251,7 @@ export const auditPlugin: FastifyPluginAsync = async (fastify) => {
         recommendationsTotal,
         recommendationsAcceptedCount,
         recommendationsAcceptedRate,
+        recommendationsPendingCount: pendingRecommendationsCount[0]?.count || 0,
         averageTeacherPrepMinutes: avgPrep,
         prepDurationSampleCount: prepCount,
       };

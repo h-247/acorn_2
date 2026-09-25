@@ -1,5 +1,40 @@
 import dotenv from 'dotenv';
-dotenv.config();
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/**
+ * Load the nearest `.env` walking up from this file, not from the working
+ * directory.
+ *
+ * `dotenv.config()` on its own resolves against `process.cwd()`, which is
+ * `apps/api` however the app is started - while the file it wants is at the
+ * root of the workspace. The result was an app that read none of its own
+ * configuration and ran on the fallback literals below, which passed unnoticed
+ * only because those literals happen to match compose.
+ *
+ * Searching upward works the same in `src` and in `dist`, and finds nothing in
+ * a container, where the environment is passed in directly. Real environment
+ * variables still win: dotenv does not overwrite what is already set.
+ */
+function loadEnvFile(): void {
+  let dir = dirname(fileURLToPath(import.meta.url));
+
+  for (let depth = 0; depth < 8; depth++) {
+    const candidate = resolve(dir, '.env');
+    if (existsSync(candidate)) {
+      dotenv.config({ path: candidate });
+      return;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  dotenv.config();
+}
+
+loadEnvFile();
 
 export const config = {
   port: parseInt(process.env.PORT || '4000', 10),

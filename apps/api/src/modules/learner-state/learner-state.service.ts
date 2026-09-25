@@ -1,5 +1,6 @@
 import { ConfidenceLevel } from '@acorn/contracts';
 import * as schema from '../../infrastructure/persistence/schema.js';
+import { config } from '../../shared/config.js';
 import { eq, and, desc } from 'drizzle-orm';
 
 export interface ComputedSkillState {
@@ -11,7 +12,14 @@ export interface ComputedSkillState {
   lastEvidenceAt: string | null;
 }
 
-export function computeSkillState(evidenceList: any[], recentN: number = 20): ComputedSkillState {
+// The window is a starting parameter, not an academic constant - the spec is
+// explicit that recent-N=20 is there to be tuned from real data. Defaulting to
+// the configured value is what lets RECENT_EVIDENCE_COUNT actually change
+// anything; callers with no opinion simply do not pass one.
+export function computeSkillState(
+  evidenceList: any[],
+  recentN: number = config.recentEvidenceCount
+): ComputedSkillState {
   // G08: Only consider non-superseded evidence in skill state computation
   const effectiveEvidence = evidenceList.filter((e) => !e.isSuperseded);
 
@@ -61,7 +69,7 @@ export async function recomputeLearnerSkillState(
   txOrDb: any,
   learnerId: string,
   skillId: string,
-  recentN: number = 20
+  recentN: number = config.recentEvidenceCount
 ) {
   const evidenceList = await txOrDb
     .select()

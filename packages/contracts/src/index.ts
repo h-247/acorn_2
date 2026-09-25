@@ -165,7 +165,18 @@ export const MaterialDTOSchema = z.object({
 });
 export type MaterialDTO = z.infer<typeof MaterialDTOSchema>;
 
+/**
+ * How long the teacher spent preparing this, in minutes.
+ *
+ * Optional and self-reported: the product measures teacher effort saved, and
+ * nothing in a web request can observe that on its own. Absent means not
+ * measured, which is why the metric reports its sample count alongside the
+ * average rather than quietly averaging over whatever happened to arrive.
+ */
+export const PrepDurationMinutesSchema = z.number().positive().max(24 * 60).optional();
+
 export const CreateMaterialRequestSchema = z.object({
+  prepDurationMinutes: PrepDurationMinutesSchema,
   title: z.string().min(3),
   type: z.nativeEnum(MaterialType),
   primarySkillId: z.string().uuid(),

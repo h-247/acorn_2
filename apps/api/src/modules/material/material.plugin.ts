@@ -253,7 +253,9 @@ export const materialPlugin: FastifyPluginAsync = async (fastify) => {
         action: 'MATERIAL_CREATED',
         entityType: 'MATERIAL',
         entityId: newMaterial.id,
-        metadata: { title: body.title },
+        // Recorded when the caller offers it. The average prep time metric reads
+        // this key and had nowhere to read it from before.
+        metadata: { title: body.title, prepDurationMinutes: body.prepDurationMinutes ?? null },
       });
 
       return newMaterial;
@@ -386,7 +388,10 @@ export const materialPlugin: FastifyPluginAsync = async (fastify) => {
         action: 'MATERIAL_ADAPTED',
         entityType: 'MATERIAL',
         entityId: adapted.id,
-        metadata: { sourceMaterialId: sourceMat.id },
+        metadata: {
+          sourceMaterialId: sourceMat.id,
+          prepDurationMinutes: (request.body as any)?.prepDurationMinutes ?? null,
+        },
       });
 
       return adapted;
@@ -605,14 +610,31 @@ export const materialPlugin: FastifyPluginAsync = async (fastify) => {
       throw new BadRequestError('Material must be APPROVED before it can be released to a class');
     }
 
-    await db
+    // Direct reuse is exactly this: an approved material put in front of another
+    // class without being rewritten. Counting it here is what stops the reuse
+    // rate reading zero for a centre that reuses everything.
+    //
+    // `returning()` after `onConflictDoNothing()` yields nothing when the row
+    // was already there, so releasing the same material to the same class twice
+    // is not two reuses - the metric must not reward a double click.
+    const inserted = await db
       .insert(schema.classMaterials)
       .values({
         materialId: id,
         classId,
         releasedBy: user.id,
       })
-      .onConflictDoNothing();
+      .onConflictDoNothing()
+      .returning({ id: schema.classMaterials.id });
+
+    const isNewRelease = inserted.length > 0;
+
+    if (isNewRelease) {
+      await db
+        .update(schema.materials)
+        .set({ usageCount: sql`${schema.materials.usageCount} + 1`, updatedAt: new Date() })
+        .where(eq(schema.materials.id, id));
+    }
 
     await db.insert(schema.auditEvents).values({
       actorId: user.id,
@@ -620,10 +642,10 @@ export const materialPlugin: FastifyPluginAsync = async (fastify) => {
       action: 'MATERIAL_RELEASED_TO_CLASS',
       entityType: 'MATERIAL',
       entityId: id,
-      metadata: { classId },
+      metadata: { classId, countedAsReuse: isNewRelease },
     });
 
-    return reply.status(201).send({ success: true, materialId: id, classId });
+    return reply.status(201).send({ success: true, materialId: id, classId, countedAsReuse: isNewRelease });
   });
 
   // 10. Revoke release of material to a class
