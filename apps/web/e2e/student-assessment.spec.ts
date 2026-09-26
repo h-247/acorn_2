@@ -23,7 +23,7 @@ test.describe('Student Assessment & Authorization Boundary E2E', () => {
     await signInButton.click();
 
     // 4. Verify redirected to Student Home portal
-    await expect(page).toHaveURL('http://localhost:3000/student');
+    await expect(page).toHaveURL('http://127.0.0.1:3000/student');
     await expect(page.getByRole('heading', { name: /welcome back, emma/i })).toBeVisible();
     await expect(page.getByText('Student Portal')).toBeVisible();
 
@@ -35,7 +35,7 @@ test.describe('Student Assessment & Authorization Boundary E2E', () => {
 
     // 6. Student can inspect evidence-backed learning progress without teacher tooling.
     await page.getByRole('link', { name: 'My Progress' }).click();
-    await expect(page).toHaveURL('http://localhost:3000/student/progress');
+    await expect(page).toHaveURL('http://127.0.0.1:3000/student/progress');
     await expect(page.getByRole('heading', { name: 'My Progress' })).toBeVisible();
     await expect(page.getByText('Skill breakdown')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Materials', exact: true })).not.toBeVisible();
@@ -43,7 +43,7 @@ test.describe('Student Assessment & Authorization Boundary E2E', () => {
 
     // 7. Navigate to Student Assessments list
     await page.goto('/student/assessments');
-    await expect(page).toHaveURL('http://localhost:3000/student/assessments');
+    await expect(page).toHaveURL('http://127.0.0.1:3000/student/assessments');
     await expect(page.getByRole('heading', { name: 'My Assessments' })).toBeVisible();
 
     // 8. Verify student sees own assessments
@@ -81,7 +81,7 @@ test.describe('Student Assessment & Authorization Boundary E2E', () => {
 
     // 11. Verify student cannot navigate to teacher route
     await page.goto('/');
-    await expect(page).toHaveURL('http://localhost:3000/');
+    await expect(page).toHaveURL('http://127.0.0.1:3000/');
     await expect(page.getByRole('heading', { name: 'Teacher Home' })).not.toBeVisible();
     await expect(page.getByText('Unable to load teacher dashboard')).toBeVisible();
     await expect(page.getByText(/Action requires one of/i)).toBeVisible();
@@ -95,7 +95,7 @@ test.describe('Student Assessment & Authorization Boundary E2E', () => {
 
     // 13. Verify student shell does not present teacher/admin navigation links
     await page.goto('/student');
-    await expect(page).toHaveURL('http://localhost:3000/student');
+    await expect(page).toHaveURL('http://127.0.0.1:3000/student');
     await expect(page.getByRole('link', { name: 'Materials', exact: true })).not.toBeVisible();
     await expect(page.getByRole('link', { name: 'Study Materials' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Classes' })).not.toBeVisible();
@@ -160,7 +160,7 @@ test.describe('Student Assessment & Authorization Boundary E2E', () => {
     await page.getByRole('button', { name: /sign in/i }).click();
 
     // 3. Verify on student dashboard
-    await expect(page).toHaveURL('http://localhost:3000/student');
+    await expect(page).toHaveURL('http://127.0.0.1:3000/student');
     await expect(page.getByRole('heading', { name: /welcome back, emma/i })).toBeVisible();
 
     // 4. Verify recommendation card displays real targetSkillName, candidate title, and readable rationale

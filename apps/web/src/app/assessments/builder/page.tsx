@@ -88,7 +88,8 @@ export default function AssessmentBuilderPage() {
     try {
       const res = await api.createAssessment({
         title,
-        description: description + (instructions ? `\n\nInstructions: ${instructions}` : ''),
+        description,
+        instructions,
         level,
         timeLimitMinutes: Number(timeLimit),
         questionIds: selectedQIds,

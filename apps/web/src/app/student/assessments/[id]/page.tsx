@@ -374,6 +374,48 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
     }
   };
 
+  const handleStartAttempt = async () => {
+    try {
+      const res = await api.beginSubmission(submissionId);
+      setActualStartedAt(res.actualStartedAt);
+      setSubmissionStatus('IN_PROGRESS');
+      setShowInstructionsModal(false);
+    } catch (err: any) {
+      setError(err.message || 'Failed to start assessment');
+    }
+  };
+
+  if (submissionStatus === 'STARTED' && !isReadOnly && !loading && !error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+        <Card className="max-w-xl w-full p-8 space-y-6 bg-white shadow-xl rounded-2xl border border-gray-100">
+          <div className="space-y-2 text-center">
+            <h1 className="text-2xl font-bold text-[#082051]">{title}</h1>
+            <Badge variant="primary" className="mx-auto">{assessmentLevel}</Badge>
+          </div>
+          <div className="bg-[#F3F6FC] rounded-xl p-6 text-sm text-[#082051] space-y-4">
+            <div className="flex items-center gap-2 font-bold mb-2">
+              <HelpCircle className="w-5 h-5 text-[#0967F7]" />
+              Instructions
+            </div>
+            <p className="whitespace-pre-wrap">{assessmentInstructions || 'Please read all questions carefully and provide your best answers.'}</p>
+            {timeLimitMinutes && (
+              <div className="flex items-center gap-2 pt-4 border-t border-blue-100 font-medium text-amber-700">
+                <Clock className="w-5 h-5" />
+                This assessment has a time limit of {timeLimitMinutes} minutes. The timer will begin when you click Start.
+              </div>
+            )}
+          </div>
+          <div className="flex justify-center pt-4">
+            <Button size="lg" variant="primary" onClick={handleStartAttempt} className="w-full sm:w-auto px-12">
+              Start Attempt
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#F3F6FC]/70 flex items-center justify-center p-8">
@@ -655,8 +697,8 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
 
           {/* Question Body by Type */}
           <div className="space-y-3 pt-2">
-            {/* 1. MCQ TYPE */}
-            {currentQ?.type === 'MCQ' && currentQ.options && currentQ.options.length > 0 ? (
+            {/* 1. MCQ & LISTENING TYPE */}
+            {(currentQ?.type === 'MCQ' || currentQ?.type === 'LISTENING') && currentQ.options && currentQ.options.length > 0 ? (
               <div className="space-y-2">
                 {currentQ.options.map((opt: string, idx: number) => {
                   const studentAns = answers[currentQ.id];
@@ -670,6 +712,7 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
                     <button
                       type="button"
                       key={idx}
+                      data-testid={`answer-option-${idx}`}
                       onClick={() => handleSaveAnswer(currentQ.id, opt)}
                       disabled={isReadOnly}
                       aria-disabled={isReadOnly}

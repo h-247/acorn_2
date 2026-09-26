@@ -31,11 +31,20 @@ export default function EvidenceExplorerPage({ params }: { params: { id: string 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const searchParams = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+  const skillId = searchParams.get('skillId');
+
   const loadEvidence = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const list = await api.getEvidence(`learnerId=${params.id}`);
+      const qs = new URLSearchParams();
+      qs.append('learnerId', params.id);
+      if (skillId) {
+        qs.append('skillId', skillId);
+      }
+
+      const list = await api.getEvidence(qs.toString());
       setEvidenceList(list || []);
       if (list && list.length > 0) {
         setSelectedEvidence((prev: any) => {
@@ -49,7 +58,7 @@ export default function EvidenceExplorerPage({ params }: { params: { id: string 
     } finally {
       setLoading(false);
     }
-  }, [params.id]);
+  }, [params.id, skillId]);
 
   useEffect(() => {
     loadEvidence();

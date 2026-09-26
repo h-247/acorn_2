@@ -33,6 +33,10 @@ export class S3CompatibleStorageService implements ObjectStorageService {
         secretAccessKey: config.objectStorage.secretKey,
       },
       forcePathStyle: config.objectStorage.forcePathStyle,
+      // SeaweedFS rejects presigned GET URLs that include the SDK's optional
+      // response-checksum query parameter with SignatureDoesNotMatch.
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
     });
   }
 

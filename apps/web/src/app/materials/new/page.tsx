@@ -28,10 +28,17 @@ export default function CreateMaterialPage() {
   const [content, setContent] = useState('');
   const [summary, setSummary] = useState('');
   const [courses, setCourses] = useState<any[]>([]);
+  const [skills, setSkills] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
 
   React.useEffect(() => {
     api.getCourses().then((c) => setCourses(c || [])).catch(() => {});
+    api.getSkills().then((s) => {
+      setSkills(s || []);
+      if (s && s.length > 0) {
+        setSkillId(s[0].id);
+      }
+    }).catch(() => {});
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -144,6 +151,16 @@ export default function CreateMaterialPage() {
                   { label: 'Intermediate', value: 'INTERMEDIATE' },
                   { label: 'Advanced', value: 'ADVANCED' },
                 ]}
+              />
+
+              <Select
+                label="Primary Skill Focus"
+                value={skillId}
+                onChange={(e) => setSkillId(e.target.value)}
+                options={skills.map(s => ({
+                  label: `${s.area} • ${s.name}`,
+                  value: s.id
+                }))}
               />
 
               <Select

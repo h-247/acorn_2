@@ -536,6 +536,39 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
   fastify.put('/:id/publish', { preHandler: [authenticate, requireRole([UserRole.TEACHER, UserRole.ADMIN])] }, async (request) => {
     const { id } = request.params as { id: string };
 
+    const items = await db.select().from(schema.assessmentItems).where(eq(schema.assessmentItems.assessmentId, id));
+    if (items.length === 0) {
+      throw new BadRequestError('Cannot publish an assessment with no questions');
+    }
+
+    const qIds = items.map((i) => i.questionId);
+    const questions = await db.select().from(schema.questions).where(inArray(schema.questions.id, qIds));
+
+    for (const q of questions) {
+      if (q.type === 'MCQ' && (!Array.isArray(q.options) || q.options.length < 2 || !q.correctAnswer)) {
+        throw new BadRequestError(`MCQ question "${q.prompt.substring(0, 20)}..." is incomplete. It must have at least 2 options and a correct answer.`);
+      }
+
+      if (q.type === 'LISTENING') {
+        if (!Array.isArray(q.options) || q.options.length < 2 || !q.correctAnswer) {
+          throw new BadRequestError(`LISTENING question "${q.prompt.substring(0, 20)}..." is incomplete. It must have at least 2 options and a correct answer.`);
+        }
+        if (!q.sourceMaterialId) {
+          throw new BadRequestError(`LISTENING question "${q.prompt.substring(0, 20)}..." must have a linked source material containing audio.`);
+        }
+        const [material] = await db.select().from(schema.materials).where(eq(schema.materials.id, q.sourceMaterialId));
+        if (!material) {
+          throw new BadRequestError(`LISTENING question "${q.prompt.substring(0, 20)}..." has an invalid linked source material.`);
+        }
+
+        const files = await db.select().from(schema.materialFiles).where(eq(schema.materialFiles.materialId, q.sourceMaterialId));
+        const hasAudio = files.some(f => f.mimeType.startsWith('audio/'));
+        if (!hasAudio) {
+          throw new BadRequestError(`LISTENING question "${q.prompt.substring(0, 20)}..." requires its linked source material to have an audio file.`);
+        }
+      }
+    }
+
     const [updated] = await db
       .update(schema.assessments)
       .set({ status: AssessmentStatus.PUBLISHED, updatedAt: new Date() })
@@ -631,76 +664,136 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
     }
 
     const result = await db.transaction(async (tx) => {
-      // Check duplicate assignment
-      const existingAssignments = await tx
-        .select()
-        .from(schema.assignments)
-        .where(
-          and(
-            eq(schema.assignments.assessmentId, id),
-            body.classId ? eq(schema.assignments.classId, body.classId) : eq(schema.assignments.status, 'OPEN')
-          )
-        );
-
-      let assignment = existingAssignments[0];
-
-      if (!assignment) {
-        const [newAssign] = await tx
-          .insert(schema.assignments)
-          .values({
-            assessmentId: id,
-            classId: body.classId || null,
-            learnerId: body.learnerIds?.[0] || null,
-            dueAt: body.dueAt ? new Date(body.dueAt) : null,
-            status: 'OPEN',
-          })
-          .returning();
-        assignment = newAssign;
-      }
-
-      // Collect target learners
+      let createdAssignments: any[] = [];
       let targetLearnerIds: string[] = body.learnerIds || [];
+
       if (body.classId) {
+        // Class-level assignment (single row)
+        let [assignment] = await tx
+          .select()
+          .from(schema.assignments)
+          .where(
+            and(
+              eq(schema.assignments.assessmentId, id),
+              eq(schema.assignments.classId, body.classId),
+              eq(schema.assignments.status, 'OPEN')
+            )
+          );
+
+        if (!assignment) {
+          await tx
+            .insert(schema.assignments)
+            .values({
+              assessmentId: id,
+              classId: body.classId,
+              learnerId: null,
+              dueAt: body.dueAt ? new Date(body.dueAt) : null,
+              status: 'OPEN',
+            })
+            .onConflictDoNothing();
+
+          [assignment] = await tx
+            .select()
+            .from(schema.assignments)
+            .where(
+              and(
+                eq(schema.assignments.assessmentId, id),
+                eq(schema.assignments.classId, body.classId),
+                eq(schema.assignments.status, 'OPEN')
+              )
+            );
+        }
+
+        createdAssignments.push(assignment);
+
         const enrollments = await tx
           .select({ learnerId: schema.classEnrollments.learnerId })
           .from(schema.classEnrollments)
           .where(eq(schema.classEnrollments.classId, body.classId));
         targetLearnerIds = Array.from(new Set([...targetLearnerIds, ...enrollments.map((e) => e.learnerId)]));
+      } else {
+        // Individual assignments
+        for (const learnerId of targetLearnerIds) {
+          let [assignment] = await tx
+            .select()
+            .from(schema.assignments)
+            .where(
+              and(
+                eq(schema.assignments.assessmentId, id),
+                eq(schema.assignments.learnerId, learnerId),
+                eq(schema.assignments.status, 'OPEN')
+              )
+            );
+
+          if (!assignment) {
+            await tx
+              .insert(schema.assignments)
+              .values({
+                assessmentId: id,
+                classId: null,
+                learnerId,
+                dueAt: body.dueAt ? new Date(body.dueAt) : null,
+                status: 'OPEN',
+              })
+              .onConflictDoNothing();
+
+            [assignment] = await tx
+              .select()
+              .from(schema.assignments)
+              .where(
+                and(
+                  eq(schema.assignments.assessmentId, id),
+                  eq(schema.assignments.learnerId, learnerId),
+                  eq(schema.assignments.status, 'OPEN')
+                )
+              );
+          }
+          createdAssignments.push(assignment);
+        }
       }
 
-      // Automatically create STARTED submissions for each learner if not already exists
+      // Automatically create STARTED submissions for each learner
       for (const learnerId of targetLearnerIds) {
-        const existingSub = await tx
+        // Find which assignment to tie the submission to
+        const assignmentForLearner = body.classId
+          ? createdAssignments[0]
+          : createdAssignments.find(a => a.learnerId === learnerId);
+
+        if (!assignmentForLearner) continue;
+
+        let existingSub = await tx
           .select({ id: schema.submissions.id })
           .from(schema.submissions)
           .where(
             and(
-              eq(schema.submissions.assignmentId, assignment.id),
+              eq(schema.submissions.assignmentId, assignmentForLearner.id),
               eq(schema.submissions.learnerId, learnerId)
             )
           );
 
         if (existingSub.length === 0) {
           await tx.insert(schema.submissions).values({
-            assignmentId: assignment.id,
+            assignmentId: assignmentForLearner.id,
             assessmentId: id,
             learnerId,
             status: 'STARTED',
             maxPossibleScore: 100,
-          });
+          }).onConflictDoNothing();
         }
       }
 
-      await tx.insert(schema.auditEvents).values({
-        actorId: request.user!.id,
-        actorRole: request.user!.role,
-        action: 'ASSESSMENT_ASSIGNED',
-        entityType: 'ASSIGNMENT',
-        entityId: assignment.id,
-        metadata: { classId: body.classId, learnersCount: targetLearnerIds.length },
-      });
+      for (const assign of createdAssignments) {
+        await tx.insert(schema.auditEvents).values({
+          actorId: request.user!.id,
+          actorRole: request.user!.role,
+          action: 'ASSESSMENT_ASSIGNED',
+          entityType: 'ASSIGNMENT',
+          entityId: assign.id,
+          metadata: { classId: assign.classId, learnerId: assign.learnerId },
+        });
+      }
 
-      return assignment;
+      return createdAssignments[0];
     });
 
     return reply.status(201).send({

@@ -23,7 +23,7 @@ test.describe('Teacher Cookie Login and Logout Smoke Test', () => {
     await signInButton.click();
 
     // 4. Verify redirected to Teacher Home
-    await expect(page).toHaveURL('http://localhost:3000/');
+    await expect(page).toHaveURL('http://127.0.0.1:3000/');
     await expect(page.getByRole('heading', { name: 'Teacher Home' })).toBeVisible();
     await expect(page.getByText('Welcome back, Ms. Taylor!')).toBeVisible();
 

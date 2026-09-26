@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX IF NOT EXISTS "assignments_open_class_uidx" ON "assignments" USING btree ("assessment_id","class_id") WHERE status = 'OPEN';--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "assignments_open_learner_uidx" ON "assignments" USING btree ("assessment_id","learner_id") WHERE status = 'OPEN';

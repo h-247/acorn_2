@@ -39,9 +39,13 @@ export const RecommendationPanel: React.FC<RecommendationPanelProps> = ({
               <div className="space-y-1 mt-3">
                 <span className="text-xs font-semibold text-[#082051]">Evidence Rationale:</span>
                 <ul className="text-xs text-[#5969AB] list-disc list-inside space-y-0.5">
-                  {recommendation.rationale.map((r, i) => (
-                    <li key={i}>{r}</li>
-                  ))}
+                  {(() => {
+                    const r = typeof recommendation.rationale === 'string'
+                      ? JSON.parse(recommendation.rationale)
+                      : recommendation.rationale;
+                    const items = Array.isArray(r) ? r : Array.isArray(r?.texts) ? r.texts : [];
+                    return items.map((text: string, i: number) => <li key={i}>{text}</li>);
+                  })()}
                 </ul>
               </div>
             </div>
@@ -55,11 +59,11 @@ export const RecommendationPanel: React.FC<RecommendationPanelProps> = ({
               Candidate Materials (Reuse → Adapt)
             </h3>
             <span className="text-xs text-[#656C79]">
-              {recommendation.candidates.length} options ready
+              {(recommendation.candidates || []).length} options ready
             </span>
           </div>
           <div className="space-y-3">
-            {recommendation.candidates.map((candidate) => (
+            {(recommendation.candidates || []).map((candidate) => (
               <CandidateMaterialCard
                 key={candidate.materialId}
                 candidate={candidate}

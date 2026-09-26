@@ -148,6 +148,17 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
         .where(eq(schema.classEnrollments.learnerId, learnerId));
       const learnerClassIds = enrollments.map((e) => e.classId);
 
+      let courseTargetLevel = 'B1';
+      if (learnerClassIds.length > 0) {
+        const [learnerClass] = await db.select().from(schema.classes).where(eq(schema.classes.id, learnerClassIds[0]));
+        if (learnerClass) {
+          const [course] = await db.select().from(schema.courses).where(eq(schema.courses.id, learnerClass.courseId));
+          if (course && 'level' in course && course.level) {
+            courseTargetLevel = course.level as string;
+          }
+        }
+      }
+
       // Fetch materials released to those classes
       let releasedMaterialIds = new Set<string>();
       if (learnerClassIds.length > 0) {
@@ -177,7 +188,7 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
 
       if (matchingMaterials.length > 0) {
         // Direct reuse candidate
-        const exactMatch = matchingMaterials.find((m) => m.level === (targetSkill.level as CEFRLevel)) || matchingMaterials[0];
+        const exactMatch = matchingMaterials.find((m) => m.level === courseTargetLevel) || matchingMaterials[0];
         candidatePlans.push({
           materialId: exactMatch.id,
           action: RecommendationAction.REUSE,
@@ -190,7 +201,7 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
           candidatePlans.push({
             materialId: adaptMatch.id,
             action: RecommendationAction.ADAPT,
-            matchReason: `Adaptable passage for targeted ${targetSkill.level || 'B1'} skill practice.`,
+            matchReason: `Adaptable passage for targeted ${courseTargetLevel} skill practice.`,
           });
         }
       } else if (allMaterials.length > 0) {
@@ -208,9 +219,11 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
       const rationale = {
         texts: [
           targetEvidenceCount > 0
-            ? `Performance in ${targetSkill.name} is lower than target mastery.`
+            ? (targetState.scorePercentage ?? 0) >= 90
+              ? `Performance in ${targetSkill.name} shows mastery; ready for advanced challenge.`
+              : `Performance in ${targetSkill.name} is lower than target mastery.`
             : `Foundational practice in ${targetSkill.name} to establish baseline evidence.`,
-          `Aligned with CEFR ${targetSkill.level || 'B1'} curriculum objectives.`,
+          `Aligned with CEFR ${courseTargetLevel} curriculum objectives.`,
           `Grounded in ${targetEvidenceCount} recorded learning evidence observation(s).`,
         ],
         grounding: {
@@ -231,7 +244,7 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
             id: recId,
             learnerId,
             targetSkillId: targetSkill.id,
-            targetLevel: (targetSkill.level as CEFRLevel) || CEFRLevel.B1,
+            targetLevel: courseTargetLevel as CEFRLevel,
             priority: (targetState.scorePercentage ?? 100) < 60 ? 'HIGH' : 'MEDIUM',
             recommendedActionText: `Focus on ${targetSkill.name}`,
             rationale,
@@ -306,7 +319,9 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
       targetLevel: rec.targetLevel as CEFRLevel,
       priority: rec.priority as 'HIGH' | 'MEDIUM' | 'LOW',
       recommendedActionText: rec.recommendedActionText,
-      rationale: rec.rationale,
+      rationale: typeof rec.rationale === 'string'
+        ? JSON.parse(rec.rationale)
+        : (rec.rationale ?? []),
       evidenceBasisCount: rec.evidenceBasisCount,
       learnerCurrentScore: rec.learnerCurrentScore,
       learnerConfidence: rec.learnerConfidence as ConfidenceLevel,

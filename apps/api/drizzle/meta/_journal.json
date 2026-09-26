@@ -50,6 +50,20 @@
       "when": 1790000000000,
       "tag": "0006_evidence_history",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790332349202,
+      "tag": "0007_marvelous_mulholland_black",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790332535924,
+      "tag": "0008_wakeful_molten_man",
+      "breakpoints": true
     }
   ]
 }

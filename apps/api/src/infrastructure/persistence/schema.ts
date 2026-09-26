@@ -203,6 +203,8 @@ export const assignments = pgTable('assignments', {
 }, (table) => ({
   classIdx: index('assignments_class_idx').on(table.classId),
   learnerIdx: index('assignments_learner_idx').on(table.learnerId),
+  uniqueOpenClass: uniqueIndex('assignments_open_class_uidx').on(table.assessmentId, table.classId).where(sql`status = 'OPEN'`),
+  uniqueOpenLearner: uniqueIndex('assignments_open_learner_uidx').on(table.assessmentId, table.learnerId).where(sql`status = 'OPEN'`),
 }));
 
 export const submissions = pgTable('submissions', {
@@ -228,7 +230,7 @@ export const submissions = pgTable('submissions', {
 }, (table) => ({
   learnerIdx: index('submissions_learner_idx').on(table.learnerId),
   assignmentIdx: index('submissions_assignment_idx').on(table.assignmentId),
-  statusIdx: index('submissions_status_idx').on(table.status),
+  statusIdx: index('submissions_status_idx').on(table.status), uniqueAssignmentLearner: uniqueIndex('submissions_assignment_learner_uidx').on(table.assignmentId, table.learnerId),
 }));
 
 
