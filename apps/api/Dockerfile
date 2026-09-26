@@ -10,6 +10,10 @@
 #   docker build -f apps/api/Dockerfile -t acorn-api .
 
 FROM node:20-alpine AS base
+# Corepack reads the pinned version from package.json. Without the prompt
+# disabled it asks before downloading, which a non-interactive build or a
+# `compose exec` cannot answer.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable
 WORKDIR /app
 
