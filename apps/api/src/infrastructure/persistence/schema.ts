@@ -1,4 +1,5 @@
 import { pgTable, text, timestamp, integer, boolean, real, jsonb, uuid, uniqueIndex, index, check } from 'drizzle-orm/pg-core';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 export const users = pgTable('users', {
@@ -55,12 +56,20 @@ export const skills = pgTable('skills', {
   code: text('code').notNull().unique(),
   name: text('name').notNull(),
   area: text('area').notNull(),
-  parentId: uuid('parent_id'),
+  // Self reference, so the database refuses a parent that does not exist. The
+  // return type is annotated because the table is still being defined here.
+  parentId: uuid('parent_id').references((): AnyPgColumn => skills.id, { onDelete: 'set null' }),
   level: text('level'),
   description: text('description'),
+  // ARCHIVED means "stop offering this when tagging new work". Evidence already
+  // recorded against the skill stays valid and keeps counting, which is why a
+  // skill in use is retired rather than deleted.
+  status: text('status').default('ACTIVE').notNull(),
 }, (table) => ({
   areaIdx: index('skills_area_idx').on(table.area),
   parentIdx: index('skills_parent_idx').on(table.parentId),
+  statusIdx: index('skills_status_idx').on(table.status),
+  statusCheck: check('skills_status_check', sql`status IN ('ACTIVE', 'ARCHIVED')`),
 }));
 
 export const materials = pgTable('materials', {

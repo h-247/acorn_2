@@ -18,7 +18,10 @@ export default function CreateMaterialPage() {
   const router = useRouter();
   const [title, setTitle] = useState('');
   const [type, setType] = useState('ARTICLE');
-  const [skillId, setSkillId] = useState('66666666-6666-6666-6666-666666666601');
+  // Starts empty and is filled from the taxonomy once it loads. Hard-coding
+  // a seed id here is what stopped any skill created afterwards from ever
+  // being picked.
+  const [skillId, setSkillId] = useState('');
   const [level, setLevel] = useState('B1');
   const [difficulty, setDifficulty] = useState('INTERMEDIATE');
   const [topic, setTopic] = useState('');
@@ -28,10 +31,22 @@ export default function CreateMaterialPage() {
   const [content, setContent] = useState('');
   const [summary, setSummary] = useState('');
   const [courses, setCourses] = useState<any[]>([]);
+  const [skills, setSkills] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
 
   React.useEffect(() => {
     api.getCourses().then((c) => setCourses(c || [])).catch(() => {});
+
+    // Archived skills are left out by the API, so the picker only ever offers
+    // what the centre currently tags work with.
+    api
+      .getSkills({ all: true })
+      .then((res: any) => {
+        const rows = Array.isArray(res) ? res : res?.items || [];
+        setSkills(rows);
+        setSkillId((current) => current || rows[0]?.id || '');
+      })
+      .catch(() => {});
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -174,14 +189,14 @@ export default function CreateMaterialPage() {
                 label="Primary Skill"
                 value={skillId}
                 onChange={(e) => setSkillId(e.target.value)}
-                options={[
-                  { label: 'Reading', value: '66666666-6666-6666-6666-666666666601' },
-                  { label: 'Listening', value: '66666666-6666-6666-6666-666666666606' },
-                  { label: 'Speaking', value: '66666666-6666-6666-6666-666666666607' },
-                  { label: 'Writing', value: '66666666-6666-6666-6666-666666666608' },
-                  { label: 'Grammar', value: '66666666-6666-6666-6666-666666666609' },
-                  { label: 'Vocabulary', value: '66666666-6666-6666-6666-666666666610' },
-                ]}
+                options={
+                  skills.length > 0
+                    ? skills.map((s: any) => ({
+                        label: s.parentId ? `\u00a0\u00a0\u00a0\u00a0${s.name}` : s.name,
+                        value: s.id,
+                      }))
+                    : [{ label: 'Loading skills…', value: '' }]
+                }
               />
 
               <Select

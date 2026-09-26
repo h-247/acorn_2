@@ -100,7 +100,11 @@ export const api = {
 
   // Taxonomy & Skills
   getSkills: (params?: any) => request<any>(`/taxonomy/skills${buildQueryString(params)}`),
-  getSkillTree: () => request<any[]>('/taxonomy/tree'),
+  getSkillTree: (params?: any) => request<any[]>(`/taxonomy/tree${buildQueryString(params)}`),
+  archiveSkill: (id: string) =>
+    request<any>(`/taxonomy/skills/${id}/archive`, { method: 'POST' }),
+  restoreSkill: (id: string) =>
+    request<any>(`/taxonomy/skills/${id}/restore`, { method: 'POST' }),
   createSkill: (data: any) =>
     request<any>('/taxonomy/skills', { method: 'POST', body: JSON.stringify(data) }),
   updateSkill: (id: string, data: any) =>

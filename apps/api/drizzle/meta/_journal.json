@@ -50,6 +50,13 @@
       "when": 1790000000000,
       "tag": "0006_evidence_history",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790314820965,
+      "tag": "0007_skill_lifecycle",
+      "breakpoints": true
     }
   ]
 }

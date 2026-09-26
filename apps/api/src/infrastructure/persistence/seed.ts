@@ -219,7 +219,9 @@ export async function seedDatabase() {
       .values(s)
       .onConflictDoUpdate({
         target: schema.skills.id,
-        set: { name: s.name, code: s.code, parentId: s.parentId },
+        // status is reset on purpose: seeding upserts rather than truncating, so
+        // anything left out of this clause survives from the previous run.
+        set: { name: s.name, code: s.code, parentId: s.parentId, status: 'ACTIVE' },
       });
   }
 

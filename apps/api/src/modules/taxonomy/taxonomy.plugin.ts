@@ -26,13 +26,56 @@ const SkillQuerySchema = z.object({
   paginate: z.coerce.boolean().optional(),
 });
 
+/**
+ * A skill is retired, never deleted.
+ *
+ * `learning_evidence`, `question_skills` and `materials` all point at
+ * `skills.id`, so deleting one that has been used would take a learner's
+ * history with it - and DELETE below refuses for exactly that reason. ARCHIVED
+ * is the way out instead: stop offering it when tagging new work, leave
+ * everything already recorded against it alone.
+ *
+ * Archiving takes the subtree and restoring takes the ancestors, because either
+ * one alone leaves a tree no screen can draw honestly: an archived parent whose
+ * children are still live, or a live child hanging off a parent nobody sees.
+ */
+const ARCHIVE_SUBTREE = (id: string) => sql`
+  WITH RECURSIVE sub AS (
+    SELECT id FROM skills WHERE id = ${id}
+    UNION ALL
+    SELECT c.id FROM skills c JOIN sub ON c.parent_id = sub.id
+  )
+  UPDATE skills SET status = 'ARCHIVED'
+  WHERE id IN (SELECT id FROM sub) AND status <> 'ARCHIVED'
+  RETURNING id
+`;
+
+const RESTORE_WITH_ANCESTORS = (id: string) => sql`
+  WITH RECURSIVE up AS (
+    SELECT id, parent_id FROM skills WHERE id = ${id}
+    UNION ALL
+    SELECT p.id, p.parent_id FROM skills p JOIN up ON up.parent_id = p.id
+  )
+  UPDATE skills SET status = 'ACTIVE'
+  WHERE id IN (SELECT id FROM up) AND status <> 'ACTIVE'
+  RETURNING id
+`;
+
 export const taxonomyPlugin: FastifyPluginAsync = async (fastify) => {
   // Get flat list of skills (with optional filtering & pagination)
   fastify.get('/skills', async (request) => {
     const parsedQuery = SkillQuerySchema.parse(request.query);
     const rawQuery = (request.query as any) || {};
 
+    // Read the raw string rather than coercing: z.coerce.boolean() maps the
+    // string "false" to true, so a coerced flag would mean the opposite of what
+    // the caller wrote.
+    const includeArchived = rawQuery.includeArchived === 'true';
+
     const conditions: any[] = [];
+    if (!includeArchived) {
+      conditions.push(eq(schema.skills.status, 'ACTIVE'));
+    }
     if (parsedQuery.area) {
       conditions.push(eq(schema.skills.area, parsedQuery.area));
     }
@@ -98,8 +141,11 @@ export const taxonomyPlugin: FastifyPluginAsync = async (fastify) => {
   });
 
   // Get hierarchical skills tree
-  fastify.get('/tree', async () => {
-    const allSkills = await db.select().from(schema.skills);
+  fastify.get('/tree', async (request) => {
+    const includeArchived = (request.query as any)?.includeArchived === 'true';
+    const allSkills = includeArchived
+      ? await db.select().from(schema.skills)
+      : await db.select().from(schema.skills).where(eq(schema.skills.status, 'ACTIVE'));
     const rootSkills = allSkills.filter((s) => !s.parentId);
     return rootSkills.map((root) => ({
       ...root,
@@ -113,11 +159,15 @@ export const taxonomyPlugin: FastifyPluginAsync = async (fastify) => {
 
     if (body.parentId) {
       const [parent] = await db
-        .select({ id: schema.skills.id })
+        .select({ id: schema.skills.id, status: schema.skills.status })
         .from(schema.skills)
         .where(eq(schema.skills.id, body.parentId));
       if (!parent) {
         throw new BadRequestError('Parent skill does not exist');
+      }
+      // A child of an archived parent is invisible the moment it is created.
+      if (parent.status !== 'ACTIVE') {
+        throw new BadRequestError('Parent skill is archived: restore it before adding children');
       }
     }
 
@@ -150,11 +200,14 @@ export const taxonomyPlugin: FastifyPluginAsync = async (fastify) => {
       }
 
       const [parent] = await db
-        .select({ id: schema.skills.id })
+        .select({ id: schema.skills.id, status: schema.skills.status })
         .from(schema.skills)
         .where(eq(schema.skills.id, body.parentId));
       if (!parent) {
         throw new BadRequestError('Parent skill does not exist');
+      }
+      if (parent.status !== 'ACTIVE') {
+        throw new BadRequestError('Parent skill is archived: restore it before moving skills under it');
       }
 
       // Detect circular reference in hierarchy
@@ -184,7 +237,41 @@ export const taxonomyPlugin: FastifyPluginAsync = async (fastify) => {
     return updated;
   });
 
+  // Admin: Retire a skill and everything under it
+  fastify.post('/skills/:id/archive', { preHandler: [authenticate, requireRole([UserRole.ADMIN])] }, async (request) => {
+    const { id } = request.params as { id: string };
+
+    const [existing] = await db.select().from(schema.skills).where(eq(schema.skills.id, id));
+    if (!existing) throw new NotFoundError('Skill not found');
+
+    const result: any = await db.execute(ARCHIVE_SUBTREE(id));
+    const archivedIds: string[] = (result.rows ?? result).map((r: any) => r.id);
+
+    const [updated] = await db.select().from(schema.skills).where(eq(schema.skills.id, id));
+    return { skill: updated, archivedCount: archivedIds.length, archivedIds };
+  });
+
+  // Admin: Bring a skill back, with any ancestor it needs to be reachable
+  fastify.post('/skills/:id/restore', { preHandler: [authenticate, requireRole([UserRole.ADMIN])] }, async (request) => {
+    const { id } = request.params as { id: string };
+
+    const [existing] = await db.select().from(schema.skills).where(eq(schema.skills.id, id));
+    if (!existing) throw new NotFoundError('Skill not found');
+
+    // Children are deliberately left alone. Archiving the parent was one
+    // decision about a branch; undoing it should not silently undo the separate
+    // decisions made about the leaves.
+    const result: any = await db.execute(RESTORE_WITH_ANCESTORS(id));
+    const restoredIds: string[] = (result.rows ?? result).map((r: any) => r.id);
+
+    const [updated] = await db.select().from(schema.skills).where(eq(schema.skills.id, id));
+    return { skill: updated, restoredCount: restoredIds.length, restoredIds };
+  });
+
   // Admin: Delete skill node
+  //
+  // Only ever succeeds on a skill nothing has used yet; the four checks below
+  // see to that. Retiring one that is in use is what archive is for.
   fastify.delete('/skills/:id', { preHandler: [authenticate, requireRole([UserRole.ADMIN])] }, async (request) => {
     const { id } = request.params as { id: string };
 
