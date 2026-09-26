@@ -22,6 +22,7 @@ const UpdateAssessmentSchema = z.object({
   level: z.string().optional(),
   timeLimitMinutes: z.number().int().positive().optional(),
   questionIds: z.array(z.string().uuid()).optional(),
+  itemPoints: z.record(z.string().uuid(), z.number().positive().max(1000)).optional(),
 });
 
 export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
@@ -430,7 +431,9 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
       for (let i = 0; i < body.questionIds.length; i++) {
         const qId = body.questionIds[i];
         const q = questions.find((quest) => quest.id === qId);
-        let calculatedPoints = 1.0;
+        // A rubric decides its own total; anything else may be weighted by the
+        // teacher, and falls back to one point when they say nothing.
+        let calculatedPoints = body.itemPoints?.[qId] ?? 1.0;
 
         if (q && q.rubric) {
           try {
@@ -482,7 +485,9 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
     }
 
     const result = await db.transaction(async (tx) => {
-      const { questionIds, ...updateFields } = body;
+      // itemPoints belongs to assessment_items, not to the assessment row, so
+      // it must not reach the SET clause below.
+      const { questionIds, itemPoints, ...updateFields } = body;
       const [updated] = await tx
         .update(schema.assessments)
         .set({ ...updateFields, updatedAt: new Date() })
@@ -500,7 +505,9 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
         for (let i = 0; i < questionIds.length; i++) {
           const qId = questionIds[i];
           const q = questions.find((quest) => quest.id === qId);
-          let calculatedPoints = 1.0;
+          // Same rule as create: the teacher may weight anything without a
+          // rubric, and a rubric decides its own total.
+          let calculatedPoints = body.itemPoints?.[qId] ?? 1.0;
 
           if (q && q.rubric) {
             try {

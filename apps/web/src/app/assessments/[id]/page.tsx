@@ -13,7 +13,7 @@ import {
   Input,
   ErrorState,
 } from '@acorn/ui';
-import { Send, Clock, CheckCircle2, BookOpen, AlertCircle, Check, XCircle } from 'lucide-react';
+import { Send, Clock, CheckCircle2, BookOpen, AlertCircle, Check, XCircle, Edit2 } from 'lucide-react';
 import { api } from '@/lib/api';
 
 export default function AssessmentDetailPage({ params }: { params: { id: string } }) {
@@ -137,6 +137,17 @@ export default function AssessmentDetailPage({ params }: { params: { id: string 
           badge={<StatusBadge status={assessment?.status || 'DRAFT'} />}
           actions={
             <div className="flex items-center gap-2">
+              {assessment?.status === 'DRAFT' && (
+                <Button
+                  variant="outline"
+                  size="md"
+                  icon={<Edit2 className="w-4 h-4" />}
+                  onClick={() => { window.location.href = `/assessments/builder?draftId=${params.id}`; }}
+                >
+                  Edit draft
+                </Button>
+              )}
+
               {assessment?.status === 'DRAFT' && (
                 <Button
                   variant="secondary"

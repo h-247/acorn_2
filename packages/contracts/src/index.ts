@@ -299,6 +299,15 @@ export const CreateAssessmentRequestSchema = z.object({
   level: z.nativeEnum(CEFRLevel),
   timeLimitMinutes: z.number().int().positive().optional(),
   questionIds: z.array(z.string().uuid()).min(1),
+  /**
+   * What each question is worth, keyed by question id.
+   *
+   * Additive and optional, so callers that only send `questionIds` keep the
+   * behaviour they had. Ignored for questions carrying a rubric: there the
+   * total comes from the criteria, and letting the two disagree is what the
+   * marking screen's maxScore check exists to catch.
+   */
+  itemPoints: z.record(z.string().uuid(), z.number().positive().max(1000)).optional(),
 });
 export type CreateAssessmentRequest = z.infer<typeof CreateAssessmentRequestSchema>;
 
