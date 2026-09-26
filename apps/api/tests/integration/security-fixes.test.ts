@@ -196,11 +196,22 @@ describe('Security, Authorization, and Integrity Fixes', () => {
       },
     });
 
-    // 7. Create draft submission in Class B (status STARTED)
+    // 7. Create draft submission in Class B (status STARTED).
+    // On its own assignment: a learner gets one attempt per assignment, so the
+    // submitted one above and this draft cannot share a row.
+    const ASSIGNMENT_CLASS_B_DRAFT_ID = '88888888-9999-aaaa-bbbb-222222222222';
+    await db.insert(schema.assignments).values({
+      id: ASSIGNMENT_CLASS_B_DRAFT_ID,
+      assessmentId: ASSESSMENT_CLASS_B_ID,
+      classId: CLASS_IELTS_B_ID,
+      learnerId: SEED_IDS.studentEmma,
+      status: 'OPEN',
+    }).onConflictDoNothing();
+
     draftSubId = '88888888-9999-aaaa-bbbb-111111111111';
     await db.insert(schema.submissions).values({
       id: draftSubId,
-      assignmentId: ASSIGNMENT_CLASS_B_ID,
+      assignmentId: ASSIGNMENT_CLASS_B_DRAFT_ID,
       assessmentId: ASSESSMENT_CLASS_B_ID,
       learnerId: SEED_IDS.studentEmma,
       status: SubmissionStatus.STARTED,
@@ -209,7 +220,7 @@ describe('Security, Authorization, and Integrity Fixes', () => {
       target: schema.submissions.id,
       set: {
         assessmentId: ASSESSMENT_CLASS_B_ID,
-        assignmentId: ASSIGNMENT_CLASS_B_ID,
+        assignmentId: ASSIGNMENT_CLASS_B_DRAFT_ID,
         status: SubmissionStatus.STARTED,
       },
     });

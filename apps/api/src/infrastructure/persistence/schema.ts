@@ -212,6 +212,14 @@ export const assignments = pgTable('assignments', {
 }, (table) => ({
   classIdx: index('assignments_class_idx').on(table.classId),
   learnerIdx: index('assignments_learner_idx').on(table.learnerId),
+  assessmentIdx: index('assignments_assessment_idx').on(table.assessmentId),
+  // An assignment names a class or one learner, never both audiences at once.
+  oneClassAssignment: uniqueIndex('assignments_assessment_class_idx')
+    .on(table.assessmentId, table.classId)
+    .where(sql`learner_id is null and class_id is not null`),
+  oneLearnerAssignment: uniqueIndex('assignments_assessment_learner_idx')
+    .on(table.assessmentId, table.learnerId)
+    .where(sql`learner_id is not null`),
 }));
 
 export const submissions = pgTable('submissions', {
@@ -238,6 +246,11 @@ export const submissions = pgTable('submissions', {
   learnerIdx: index('submissions_learner_idx').on(table.learnerId),
   assignmentIdx: index('submissions_assignment_idx').on(table.assignmentId),
   statusIdx: index('submissions_status_idx').on(table.status),
+  // One attempt per learner per assignment, so assigning twice is a no-op.
+  oneAttemptPerLearner: uniqueIndex('submissions_assignment_learner_idx').on(
+    table.assignmentId,
+    table.learnerId
+  ),
 }));
 
 
@@ -330,7 +343,8 @@ export const recommendations = pgTable('recommendations', {
 export const recommendationCandidates = pgTable('recommendation_candidates', {
   id: uuid('id').primaryKey().defaultRandom(),
   recommendationId: uuid('recommendation_id').references(() => recommendations.id).notNull(),
-  materialId: uuid('material_id').references(() => materials.id).notNull(),
+  /** Null on a NO_MATCH card: there is nothing in the library to point at. */
+  materialId: uuid('material_id').references(() => materials.id),
   action: text('action').notNull(),
   matchReason: text('match_reason').notNull(),
 }, (table) => ({

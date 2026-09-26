@@ -19,6 +19,7 @@ import { NotFoundError, BadRequestError, ForbiddenError } from '../../shared/err
 import { storage } from '../../infrastructure/object-storage/storage.js';
 import { recomputeLearnerSkillState } from '../learner-state/learner-state.service.js';
 import { appendEvidence, supersedeEvidence } from '../evidence/evidence.service.js';
+import { assignmentReachesLearner } from '../assessment/assignment-reach.js';
 
 async function assertTeacherSubmissionAccess(user: AuthContext, sub: typeof schema.submissions.$inferSelect) {
   if (user.role !== UserRole.TEACHER) return;
@@ -235,8 +236,8 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
             )
           );
 
-        const validAssignment = openAssignments.find(
-          (a) => a.learnerId === user.id || (a.classId && classIds.includes(a.classId))
+        const validAssignment = openAssignments.find((a) =>
+          assignmentReachesLearner(a, user.id, classIds)
         );
 
         if (!validAssignment) {

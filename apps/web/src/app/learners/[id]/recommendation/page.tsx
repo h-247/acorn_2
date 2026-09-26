@@ -59,15 +59,21 @@ export default function RecommendationWorkspacePage({ params }: { params: { id: 
     loadRecommendation();
   }, [loadRecommendation]);
 
-  const handleDecision = async (decision: 'ACCEPT' | 'MODIFY' | 'REJECT', notes?: string) => {
+  const handleDecision = async (
+    decision: 'ACCEPT' | 'MODIFY' | 'REJECT',
+    detail: { notes?: string; selectedMaterialId?: string | null; modifiedActionText?: string | null }
+  ) => {
     if (!rec) return;
     setError(null);
     try {
+      // The teacher's actual choices, rather than the first candidate and a
+      // note nobody acts on.
       await api.recordDecision(rec.id, {
         recommendationId: rec.id,
         decision,
-        teacherNotes: notes,
-        selectedMaterialId: rec.candidates?.[0]?.materialId,
+        teacherNotes: detail.notes,
+        selectedMaterialId: detail.selectedMaterialId ?? null,
+        modifiedActionText: detail.modifiedActionText ?? null,
       });
       setMessage(`Teacher decision recorded: ${decision}. Teacher decision is stored separately from curriculum assignment.`);
       setTimeout(() => setMessage(null), 4000);
@@ -77,14 +83,17 @@ export default function RecommendationWorkspacePage({ params }: { params: { id: 
     }
   };
 
-  const handleCandidateAction = (action: 'REUSE' | 'ADAPT' | 'NO_MATCH', materialId: string) => {
-    if (action === 'REUSE') {
-      router.push(`/materials/${materialId}`);
-    } else if (action === 'ADAPT') {
-      router.push(`/materials/${materialId}/adapt`);
-    } else {
-      router.push(`/materials/new`);
+  const handleCandidateAction = (
+    action: 'REUSE' | 'ADAPT' | 'NO_MATCH',
+    materialId: string | null
+  ) => {
+    // A NO_MATCH card has no material behind it; its whole purpose is to send
+    // the teacher to write one.
+    if (!materialId || action === 'NO_MATCH') {
+      router.push('/materials/new');
+      return;
     }
+    router.push(action === 'ADAPT' ? `/materials/${materialId}/adapt` : `/materials/${materialId}`);
   };
 
   if (loading) {

@@ -62,11 +62,23 @@ describe('Student Workflow & Feature Integrity', () => {
       role: UserRole.TEACHER,
     });
 
-    // Create an active (STARTED) submission for Emma to test in-progress features
+    // Create an active (STARTED) submission for Emma to test in-progress
+    // features. It needs its own assignment: the seed already gives her one
+    // on assignmentReading03, and a learner gets one attempt per assignment.
+    const [ownAssignment] = await db
+      .insert(schema.assignments)
+      .values({
+        assessmentId: SEED_IDS.assessmentReading03,
+        classId: SEED_IDS.classIeltsA,
+        learnerId: SEED_IDS.studentEmma,
+        status: 'OPEN',
+      })
+      .returning();
+
     const [created] = await db
       .insert(schema.submissions)
       .values({
-        assignmentId: SEED_IDS.assignmentReading03,
+        assignmentId: ownAssignment.id,
         assessmentId: SEED_IDS.assessmentReading03,
         learnerId: SEED_IDS.studentEmma,
         status: SubmissionStatus.STARTED,
@@ -101,10 +113,22 @@ describe('Student Workflow & Feature Integrity', () => {
       points: 10,
     }).onConflictDoNothing();
 
+    // Its own assignment, for its own assessment: borrowing the reading
+    // assignment pointed the submission at a paper the assignment was not for.
+    const [speakingAssignment] = await db
+      .insert(schema.assignments)
+      .values({
+        assessmentId: speakingAssessmentId,
+        classId: SEED_IDS.classIeltsA,
+        learnerId: SEED_IDS.studentEmma,
+        status: 'OPEN',
+      })
+      .returning();
+
     const [speakingCreated] = await db
       .insert(schema.submissions)
       .values({
-        assignmentId: SEED_IDS.assignmentReading03,
+        assignmentId: speakingAssignment.id,
         assessmentId: speakingAssessmentId,
         learnerId: SEED_IDS.studentEmma,
         status: SubmissionStatus.STARTED,

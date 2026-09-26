@@ -206,6 +206,32 @@ export const AdaptMaterialRequestSchema = z.object({
 });
 export type AdaptMaterialRequest = z.infer<typeof AdaptMaterialRequestSchema>;
 
+// --- CEFR ladder ---
+
+/** The levels in order, so "one level up" means the same thing everywhere. */
+export const CEFR_ORDER: CEFRLevel[] = [
+  CEFRLevel.PRE_A1,
+  CEFRLevel.A1,
+  CEFRLevel.A2,
+  CEFRLevel.B1,
+  CEFRLevel.B2,
+  CEFRLevel.C1,
+  CEFRLevel.C2,
+];
+
+/**
+ * How many rungs apart two levels are, or null if either is unrecognised.
+ *
+ * 0 is an exact match and can be reused as it stands; 1 is adjacent and needs
+ * adapting; anything further is too far to pass off as the same practice.
+ */
+export function cefrDistance(a?: string | null, b?: string | null): number | null {
+  const left = CEFR_ORDER.indexOf(a as CEFRLevel);
+  const right = CEFR_ORDER.indexOf(b as CEFRLevel);
+  if (left < 0 || right < 0) return null;
+  return Math.abs(left - right);
+}
+
 // --- Question & Assessment ---
 export const RubricCriterionSchema = z.object({
   criteria: z.string().min(1, 'Criterion cannot be empty'),
@@ -562,18 +588,40 @@ export const LearnerStateSummaryDTOSchema = z.object({
 export type LearnerStateSummaryDTO = z.infer<typeof LearnerStateSummaryDTOSchema>;
 
 // --- Recommendation & Teacher Decision ---
+/**
+ * A candidate, or the considered absence of one.
+ *
+ * A NO_MATCH card carries nulls throughout: the library has nothing for this
+ * skill at this level, and borrowing another material's title to fill the gap
+ * is what made the empty case read as a suggestion.
+ */
 export const CandidateMaterialDTOSchema = z.object({
-  materialId: z.string().uuid(),
-  title: z.string(),
-  type: z.nativeEnum(MaterialType),
-  level: z.nativeEnum(CEFRLevel),
-  estimatedMinutes: z.number().int().positive(),
+  materialId: z.string().uuid().nullable(),
+  title: z.string().nullable(),
+  type: z.nativeEnum(MaterialType).nullable(),
+  level: z.nativeEnum(CEFRLevel).nullable(),
+  estimatedMinutes: z.number().int().positive().nullable(),
   action: z.nativeEnum(RecommendationAction),
   matchReason: z.string(),
   tags: z.array(z.string()).default([]),
   previouslyUsedCount: z.number().int().nonnegative().default(0),
 });
 export type CandidateMaterialDTO = z.infer<typeof CandidateMaterialDTOSchema>;
+
+/**
+ * Why this recommendation exists, in a form a reader can check.
+ *
+ * `texts` is what the teacher reads; `basis` is the rule that produced it, kept
+ * alongside so the two cannot drift apart; `grounding` names the evidence the
+ * figures came from.
+ */
+export const RecommendationRationaleSchema = z.object({
+  texts: z.array(z.string()).default([]),
+  basis: z.enum(['BELOW_TARGET', 'NO_DATA', 'CONSOLIDATION']).optional(),
+  masteryTarget: z.number().optional(),
+  grounding: z.record(z.string(), z.unknown()).optional(),
+});
+export type RecommendationRationale = z.infer<typeof RecommendationRationaleSchema>;
 
 export const RecommendationDTOSchema = z.object({
   id: z.string().uuid(),
@@ -584,7 +632,7 @@ export const RecommendationDTOSchema = z.object({
   targetLevel: z.nativeEnum(CEFRLevel),
   priority: z.enum(['HIGH', 'MEDIUM', 'LOW']).default('MEDIUM'),
   recommendedActionText: z.string(),
-  rationale: z.array(z.string()),
+  rationale: RecommendationRationaleSchema,
   evidenceBasisCount: z.number().int().nonnegative(),
   learnerCurrentScore: z.number().nullable(),
   learnerConfidence: z.nativeEnum(ConfidenceLevel),
@@ -609,8 +657,9 @@ export const TeacherDecisionRequestSchema = z.object({
   recommendationId: z.string().uuid(),
   decision: z.enum(['ACCEPT', 'MODIFY', 'REJECT']),
   teacherNotes: z.string().max(500).optional(),
-  selectedMaterialId: z.string().uuid().optional(),
-  modifiedActionText: z.string().optional(),
+  // Null is a real answer: a NO_MATCH candidate has no material to select.
+  selectedMaterialId: z.string().uuid().nullish(),
+  modifiedActionText: z.string().nullish(),
 });
 export type TeacherDecisionRequest = z.infer<typeof TeacherDecisionRequestSchema>;
 

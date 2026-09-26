@@ -1,7 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { db } from '../../infrastructure/persistence/db.js';
 import * as schema from '../../infrastructure/persistence/schema.js';
-import { eq, and, or, desc, inArray, sql } from 'drizzle-orm';
+import { eq, and, or, desc, inArray, isNull, sql } from 'drizzle-orm';
 import { authenticate, requireRole, assertClassAccess, assertLearnerAccess } from '../../infrastructure/auth/auth.js';
 import {
   CreateQuestionRequestSchema,
@@ -14,6 +14,7 @@ import {
   findQuestionShapeFaults,
 } from '@acorn/contracts';
 import { NotFoundError, BadRequestError, ForbiddenError } from '../../shared/errors.js';
+import { assignmentReachesLearnerSql } from './assignment-reach.js';
 import { z } from 'zod';
 
 const UpdateQuestionSchema = CreateQuestionRequestSchemaBase.partial();
@@ -345,15 +346,12 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
         .where(eq(schema.classEnrollments.learnerId, user.id));
       const classIds = studentClasses.map((c) => c.classId);
 
-      const conditions = [eq(schema.assignments.learnerId, user.id)];
-      if (classIds.length > 0) {
-        conditions.push(inArray(schema.assignments.classId, classIds));
-      }
+      const reaches = assignmentReachesLearnerSql(user.id, classIds);
 
       const assignments = await db
         .select({ assessmentId: schema.assignments.assessmentId })
         .from(schema.assignments)
-        .where(and(eq(schema.assignments.status, 'OPEN'), or(...conditions)));
+        .where(and(eq(schema.assignments.status, 'OPEN'), reaches));
 
       assignedAssessmentIds = new Set(assignments.map((a) => a.assessmentId));
       allAssessments = allAssessments.filter(
@@ -432,11 +430,6 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
         .where(eq(schema.classEnrollments.learnerId, user.id));
       const classIds = studentClasses.map((c) => c.classId);
 
-      const conditions = [eq(schema.assignments.learnerId, user.id)];
-      if (classIds.length > 0) {
-        conditions.push(inArray(schema.assignments.classId, classIds));
-      }
-
       const [assigned] = await db
         .select({ id: schema.assignments.id })
         .from(schema.assignments)
@@ -444,7 +437,7 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
           and(
             eq(schema.assignments.assessmentId, id),
             eq(schema.assignments.status, 'OPEN'),
-            or(...conditions)
+            assignmentReachesLearnerSql(user.id, classIds)
           )
         );
 
@@ -835,65 +828,100 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
       }
     }
 
+    // Naming learners means those learners, whether or not a class was named
+    // alongside them. A class on its own means the class.
+    const namedLearnerIds = Array.from(new Set(body.learnerIds ?? []));
+    const isIndividual = namedLearnerIds.length > 0;
+    if (!isIndividual && !body.classId) {
+      throw new BadRequestError('Name a class or at least one learner to assign to.');
+    }
+
+    const dueAt = body.dueAt ? new Date(body.dueAt) : null;
+
     const result = await db.transaction(async (tx) => {
-      // Check duplicate assignment
-      const existingAssignments = await tx
-        .select()
-        .from(schema.assignments)
-        .where(
-          and(
-            eq(schema.assignments.assessmentId, id),
-            body.classId ? eq(schema.assignments.classId, body.classId) : eq(schema.assignments.status, 'OPEN')
-          )
-        );
-
-      let assignment = existingAssignments[0];
-
-      if (!assignment) {
-        const [newAssign] = await tx
-          .insert(schema.assignments)
-          .values({
-            assessmentId: id,
-            classId: body.classId || null,
-            learnerId: body.learnerIds?.[0] || null,
-            dueAt: body.dueAt ? new Date(body.dueAt) : null,
-            status: 'OPEN',
-          })
-          .returning();
-        assignment = newAssign;
-      }
-
-      // Collect target learners
-      let targetLearnerIds: string[] = body.learnerIds || [];
-      if (body.classId) {
-        const enrollments = await tx
-          .select({ learnerId: schema.classEnrollments.learnerId })
-          .from(schema.classEnrollments)
-          .where(eq(schema.classEnrollments.classId, body.classId));
-        targetLearnerIds = Array.from(new Set([...targetLearnerIds, ...enrollments.map((e) => e.learnerId)]));
-      }
-
-      // Automatically create STARTED submissions for each learner if not already exists
-      for (const learnerId of targetLearnerIds) {
-        const existingSub = await tx
-          .select({ id: schema.submissions.id })
-          .from(schema.submissions)
+      /**
+       * Find or create the assignment for one recipient, and bring its
+       * deadline up to date.
+       *
+       * Re-assigning is how a teacher moves a deadline, so a second call with
+       * a new dueAt updates the existing row rather than being ignored. It
+       * never creates a second attempt: the learner keeps the work they have.
+       */
+      const upsertAssignment = async (classId: string | null, learnerId: string | null) => {
+        const [found] = await tx
+          .select()
+          .from(schema.assignments)
           .where(
             and(
-              eq(schema.submissions.assignmentId, assignment.id),
-              eq(schema.submissions.learnerId, learnerId)
+              eq(schema.assignments.assessmentId, id),
+              learnerId
+                ? eq(schema.assignments.learnerId, learnerId)
+                : and(
+                    eq(schema.assignments.classId, classId!),
+                    isNull(schema.assignments.learnerId)
+                  )
             )
           );
 
-        if (existingSub.length === 0) {
-          await tx.insert(schema.submissions).values({
-            assignmentId: assignment.id,
+        if (found) {
+          if (body.dueAt !== undefined || found.status !== 'OPEN') {
+            const [refreshed] = await tx
+              .update(schema.assignments)
+              .set({ dueAt, status: 'OPEN' })
+              .where(eq(schema.assignments.id, found.id))
+              .returning();
+            return { assignment: refreshed, created: false };
+          }
+          return { assignment: found, created: false };
+        }
+
+        const [created] = await tx
+          .insert(schema.assignments)
+          .values({ assessmentId: id, classId, learnerId, dueAt, status: 'OPEN' })
+          .returning();
+        return { assignment: created, created: true };
+      };
+
+      /** One attempt per learner, so a retry of this call changes nothing. */
+      const ensureSubmission = async (assignmentId: string, learnerId: string) => {
+        await tx
+          .insert(schema.submissions)
+          .values({
+            assignmentId,
             assessmentId: id,
             learnerId,
             status: 'STARTED',
             maxPossibleScore: 100,
+          })
+          .onConflictDoNothing({
+            target: [schema.submissions.assignmentId, schema.submissions.learnerId],
           });
+      };
+
+      const assignments: (typeof schema.assignments.$inferSelect)[] = [];
+      const recipients: string[] = [];
+
+      if (isIndividual) {
+        // One assignment each. The class, when given, rides along as context
+        // for the teacher's own views; it does not widen the audience.
+        for (const learnerId of namedLearnerIds) {
+          const { assignment } = await upsertAssignment(body.classId || null, learnerId);
+          await ensureSubmission(assignment.id, learnerId);
+          assignments.push(assignment);
+          recipients.push(learnerId);
         }
+      } else {
+        const { assignment } = await upsertAssignment(body.classId!, null);
+        const enrollments = await tx
+          .select({ learnerId: schema.classEnrollments.learnerId })
+          .from(schema.classEnrollments)
+          .where(eq(schema.classEnrollments.classId, body.classId!));
+
+        for (const { learnerId } of enrollments) {
+          await ensureSubmission(assignment.id, learnerId);
+          recipients.push(learnerId);
+        }
+        assignments.push(assignment);
       }
 
       await tx.insert(schema.auditEvents).values({
@@ -901,17 +929,31 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
         actorRole: request.user!.role,
         action: 'ASSESSMENT_ASSIGNED',
         entityType: 'ASSIGNMENT',
-        entityId: assignment.id,
-        metadata: { classId: body.classId, learnersCount: targetLearnerIds.length },
+        entityId: assignments[0].id,
+        metadata: {
+          classId: body.classId ?? null,
+          scope: isIndividual ? 'LEARNERS' : 'CLASS',
+          learnerIds: isIndividual ? namedLearnerIds : undefined,
+          learnersCount: recipients.length,
+          dueAt: dueAt ? dueAt.toISOString() : null,
+        },
       });
 
-      return assignment;
+      return { assignments, learnersAssigned: recipients.length };
     });
 
+    const serialize = (a: typeof schema.assignments.$inferSelect) => ({
+      ...a,
+      assignedAt: a.assignedAt.toISOString(),
+      dueAt: a.dueAt ? a.dueAt.toISOString() : null,
+    });
+
+    // The first assignment stays at the top level so existing callers, which
+    // only ever assign a whole class, see the shape they always have.
     return reply.status(201).send({
-      ...result,
-      assignedAt: result.assignedAt.toISOString(),
-      dueAt: result.dueAt ? result.dueAt.toISOString() : null,
+      ...serialize(result.assignments[0]),
+      assignments: result.assignments.map(serialize),
+      learnersAssigned: result.learnersAssigned,
     });
   });
 };
