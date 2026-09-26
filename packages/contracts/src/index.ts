@@ -206,6 +206,32 @@ export const AdaptMaterialRequestSchema = z.object({
 });
 export type AdaptMaterialRequest = z.infer<typeof AdaptMaterialRequestSchema>;
 
+// --- CEFR ladder ---
+
+/** The levels in order, so "one level up" means the same thing everywhere. */
+export const CEFR_ORDER: CEFRLevel[] = [
+  CEFRLevel.PRE_A1,
+  CEFRLevel.A1,
+  CEFRLevel.A2,
+  CEFRLevel.B1,
+  CEFRLevel.B2,
+  CEFRLevel.C1,
+  CEFRLevel.C2,
+];
+
+/**
+ * How many rungs apart two levels are, or null if either is unrecognised.
+ *
+ * 0 is an exact match and can be reused as it stands; 1 is adjacent and needs
+ * adapting; anything further is too far to pass off as the same practice.
+ */
+export function cefrDistance(a?: string | null, b?: string | null): number | null {
+  const left = CEFR_ORDER.indexOf(a as CEFRLevel);
+  const right = CEFR_ORDER.indexOf(b as CEFRLevel);
+  if (left < 0 || right < 0) return null;
+  return Math.abs(left - right);
+}
+
 // --- Question & Assessment ---
 export const RubricCriterionSchema = z.object({
   criteria: z.string().min(1, 'Criterion cannot be empty'),
@@ -252,15 +278,60 @@ export const CreateQuestionRequestSchemaBase = z.object({
   sourceMaterialId: z.string().uuid().optional(),
 });
 
-export const CreateQuestionRequestSchema = CreateQuestionRequestSchemaBase.superRefine((data, ctx) => {
-  if (data.type === QuestionType.WRITING || data.type === QuestionType.SPEAKING) {
-    if (!data.rubric || data.rubric.length === 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+/** What a question of each type must carry before anyone can answer it. */
+export interface QuestionShape {
+  type: QuestionType;
+  options?: string[] | null;
+  correctAnswer?: string | null;
+  rubric?: unknown[] | null;
+}
+
+/**
+ * Faults that make a question unanswerable or unmarkable.
+ *
+ * Returned as `{ path, message }` so the same rule can drive a Zod issue on
+ * create, a merged re-check on update, and the readiness check a paper runs
+ * before it may be published.
+ */
+export function findQuestionShapeFaults(q: QuestionShape): Array<{ path: string; message: string }> {
+  const faults: Array<{ path: string; message: string }> = [];
+  const key = typeof q.correctAnswer === 'string' ? q.correctAnswer.trim() : '';
+  const options = Array.isArray(q.options)
+    ? q.options.map((o) => (typeof o === 'string' ? o.trim() : '')).filter(Boolean)
+    : [];
+
+  // A listening question is a multiple choice with audio behind it; the audio
+  // itself is checked where the database is reachable.
+  if (q.type === QuestionType.MCQ || q.type === QuestionType.LISTENING) {
+    if (options.length < 2) {
+      faults.push({ path: 'options', message: 'A multiple-choice question needs at least two options.' });
+    }
+    if (!key) {
+      faults.push({ path: 'correctAnswer', message: 'A multiple-choice question needs an answer key.' });
+    } else if (options.length > 0 && !options.includes(key)) {
+      faults.push({ path: 'correctAnswer', message: 'The answer key must be one of the options.' });
+    }
+  }
+
+  if (q.type === QuestionType.SHORT_ANSWER && !key) {
+    faults.push({ path: 'correctAnswer', message: 'A short-answer question needs an answer key to mark against.' });
+  }
+
+  if (q.type === QuestionType.WRITING || q.type === QuestionType.SPEAKING) {
+    if (!Array.isArray(q.rubric) || q.rubric.length === 0) {
+      faults.push({
+        path: 'rubric',
         message: 'Rubric is required and cannot be empty for WRITING and SPEAKING questions.',
-        path: ['rubric'],
       });
     }
+  }
+
+  return faults;
+}
+
+export const CreateQuestionRequestSchema = CreateQuestionRequestSchemaBase.superRefine((data, ctx) => {
+  for (const fault of findQuestionShapeFaults(data)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: fault.message, path: [fault.path] });
   }
 });
 export type CreateQuestionRequest = z.infer<typeof CreateQuestionRequestSchema>;
@@ -299,6 +370,15 @@ export const CreateAssessmentRequestSchema = z.object({
   level: z.nativeEnum(CEFRLevel),
   timeLimitMinutes: z.number().int().positive().optional(),
   questionIds: z.array(z.string().uuid()).min(1),
+  /**
+   * What each question is worth, keyed by question id.
+   *
+   * Additive and optional, so callers that only send `questionIds` keep the
+   * behaviour they had. Ignored for questions carrying a rubric: there the
+   * total comes from the criteria, and letting the two disagree is what the
+   * marking screen's maxScore check exists to catch.
+   */
+  itemPoints: z.record(z.string().uuid(), z.number().positive().max(1000)).optional(),
 });
 export type CreateAssessmentRequest = z.infer<typeof CreateAssessmentRequestSchema>;
 
@@ -510,18 +590,40 @@ export const LearnerStateSummaryDTOSchema = z.object({
 export type LearnerStateSummaryDTO = z.infer<typeof LearnerStateSummaryDTOSchema>;
 
 // --- Recommendation & Teacher Decision ---
+/**
+ * A candidate, or the considered absence of one.
+ *
+ * A NO_MATCH card carries nulls throughout: the library has nothing for this
+ * skill at this level, and borrowing another material's title to fill the gap
+ * is what made the empty case read as a suggestion.
+ */
 export const CandidateMaterialDTOSchema = z.object({
-  materialId: z.string().uuid(),
-  title: z.string(),
-  type: z.nativeEnum(MaterialType),
-  level: z.nativeEnum(CEFRLevel),
-  estimatedMinutes: z.number().int().positive(),
+  materialId: z.string().uuid().nullable(),
+  title: z.string().nullable(),
+  type: z.nativeEnum(MaterialType).nullable(),
+  level: z.nativeEnum(CEFRLevel).nullable(),
+  estimatedMinutes: z.number().int().positive().nullable(),
   action: z.nativeEnum(RecommendationAction),
   matchReason: z.string(),
   tags: z.array(z.string()).default([]),
   previouslyUsedCount: z.number().int().nonnegative().default(0),
 });
 export type CandidateMaterialDTO = z.infer<typeof CandidateMaterialDTOSchema>;
+
+/**
+ * Why this recommendation exists, in a form a reader can check.
+ *
+ * `texts` is what the teacher reads; `basis` is the rule that produced it, kept
+ * alongside so the two cannot drift apart; `grounding` names the evidence the
+ * figures came from.
+ */
+export const RecommendationRationaleSchema = z.object({
+  texts: z.array(z.string()).default([]),
+  basis: z.enum(['BELOW_TARGET', 'NO_DATA', 'CONSOLIDATION']).optional(),
+  masteryTarget: z.number().optional(),
+  grounding: z.record(z.string(), z.unknown()).optional(),
+});
+export type RecommendationRationale = z.infer<typeof RecommendationRationaleSchema>;
 
 export const RecommendationDTOSchema = z.object({
   id: z.string().uuid(),
@@ -532,7 +634,7 @@ export const RecommendationDTOSchema = z.object({
   targetLevel: z.nativeEnum(CEFRLevel),
   priority: z.enum(['HIGH', 'MEDIUM', 'LOW']).default('MEDIUM'),
   recommendedActionText: z.string(),
-  rationale: z.array(z.string()),
+  rationale: RecommendationRationaleSchema,
   evidenceBasisCount: z.number().int().nonnegative(),
   learnerCurrentScore: z.number().nullable(),
   learnerConfidence: z.nativeEnum(ConfidenceLevel),
@@ -557,8 +659,9 @@ export const TeacherDecisionRequestSchema = z.object({
   recommendationId: z.string().uuid(),
   decision: z.enum(['ACCEPT', 'MODIFY', 'REJECT']),
   teacherNotes: z.string().max(500).optional(),
-  selectedMaterialId: z.string().uuid().optional(),
-  modifiedActionText: z.string().optional(),
+  // Null is a real answer: a NO_MATCH candidate has no material to select.
+  selectedMaterialId: z.string().uuid().nullish(),
+  modifiedActionText: z.string().nullish(),
 });
 export type TeacherDecisionRequest = z.infer<typeof TeacherDecisionRequestSchema>;
 

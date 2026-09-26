@@ -13,7 +13,7 @@ import {
   Input,
   ErrorState,
 } from '@acorn/ui';
-import { Send, Clock, CheckCircle2, BookOpen, AlertCircle, Check, XCircle } from 'lucide-react';
+import { Send, Clock, CheckCircle2, BookOpen, AlertCircle, Check, XCircle, Edit2 } from 'lucide-react';
 import { api } from '@/lib/api';
 
 export default function AssessmentDetailPage({ params }: { params: { id: string } }) {
@@ -22,10 +22,19 @@ export default function AssessmentDetailPage({ params }: { params: { id: string 
   const [isAssignDrawerOpen, setIsAssignDrawerOpen] = useState(false);
   const [selectedClassId, setSelectedClassId] = useState('');
   const [dueDate, setDueDate] = useState('');
+  // Whole class, or the learners ticked below. Naming learners never widens
+  // to the rest of the class.
+  const [assignScope, setAssignScope] = useState<'CLASS' | 'LEARNERS'>('CLASS');
+  const [roster, setRoster] = useState<any[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
+  const [pickedLearnerIds, setPickedLearnerIds] = useState<string[]>([]);
   const [assignedSuccess, setAssignedSuccess] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // What stands between this draft and READY, straight from the backend so the
+  // two can never disagree about whether the paper is publishable.
+  const [readiness, setReadiness] = useState<{ ready: boolean; faults: string[] } | null>(null);
 
   const loadAssessment = useCallback(async () => {
     setLoading(true);
@@ -37,6 +46,16 @@ export default function AssessmentDetailPage({ params }: { params: { id: string 
       ]);
       setAssessment(assData);
       setClasses(clsList || []);
+
+      if (assData?.status === 'DRAFT' || assData?.status === 'READY') {
+        try {
+          setReadiness(await api.getAssessmentReadiness(params.id));
+        } catch {
+          setReadiness(null);
+        }
+      } else {
+        setReadiness(null);
+      }
       if (clsList && clsList.length > 0) {
         setSelectedClassId((prev) => prev || clsList[0].id);
       }
@@ -50,6 +69,19 @@ export default function AssessmentDetailPage({ params }: { params: { id: string 
   useEffect(() => {
     loadAssessment();
   }, [loadAssessment]);
+
+  const handleMarkReady = async () => {
+    setActionLoading(true);
+    setErrorMessage(null);
+    try {
+      await api.markAssessmentReady(params.id);
+      loadAssessment();
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to mark this assessment ready');
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const handlePublish = async () => {
     setActionLoading(true);
@@ -78,9 +110,41 @@ export default function AssessmentDetailPage({ params }: { params: { id: string 
     }
   };
 
+  // The roster is only needed once the teacher asks to pick individuals.
+  useEffect(() => {
+    if (!isAssignDrawerOpen || assignScope !== 'LEARNERS' || !selectedClassId) return;
+    let cancelled = false;
+
+    (async () => {
+      setRosterLoading(true);
+      try {
+        const res = await api.getClassEnrollments(selectedClassId, { all: true });
+        if (cancelled) return;
+        setRoster(Array.isArray(res) ? res : res?.items || []);
+      } catch (err: any) {
+        if (!cancelled) setErrorMessage(err.message || 'Failed to load the class roster');
+      } finally {
+        if (!cancelled) setRosterLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAssignDrawerOpen, assignScope, selectedClassId]);
+
+  const toggleLearner = (learnerId: string) =>
+    setPickedLearnerIds((prev) =>
+      prev.includes(learnerId) ? prev.filter((x) => x !== learnerId) : [...prev, learnerId]
+    );
+
   const handleAssign = async () => {
     if (!selectedClassId) {
       setErrorMessage('Please select a class cohort.');
+      return;
+    }
+    if (assignScope === 'LEARNERS' && pickedLearnerIds.length === 0) {
+      setErrorMessage('Pick at least one learner, or assign to the whole class.');
       return;
     }
     setActionLoading(true);
@@ -88,6 +152,7 @@ export default function AssessmentDetailPage({ params }: { params: { id: string 
     try {
       await api.assignAssessment(params.id, {
         classId: selectedClassId,
+        learnerIds: assignScope === 'LEARNERS' ? pickedLearnerIds : undefined,
         dueAt: dueDate ? new Date(dueDate).toISOString() : undefined,
       });
       setAssignedSuccess(true);
@@ -137,7 +202,31 @@ export default function AssessmentDetailPage({ params }: { params: { id: string 
           badge={<StatusBadge status={assessment?.status || 'DRAFT'} />}
           actions={
             <div className="flex items-center gap-2">
+              {(assessment?.status === 'DRAFT' || assessment?.status === 'READY') && (
+                <Button
+                  variant="outline"
+                  size="md"
+                  icon={<Edit2 className="w-4 h-4" />}
+                  onClick={() => { window.location.href = `/assessments/builder?draftId=${params.id}`; }}
+                >
+                  Edit draft
+                </Button>
+              )}
+
               {assessment?.status === 'DRAFT' && (
+                <Button
+                  variant="secondary"
+                  size="md"
+                  icon={<Check className="w-4 h-4 text-emerald-600" />}
+                  loading={actionLoading}
+                  disabled={readiness ? !readiness.ready : false}
+                  onClick={handleMarkReady}
+                >
+                  Mark Ready
+                </Button>
+              )}
+
+              {assessment?.status === 'READY' && (
                 <Button
                   variant="secondary"
                   size="md"
@@ -178,6 +267,29 @@ export default function AssessmentDetailPage({ params }: { params: { id: string 
           <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-xs text-red-700 font-medium">
             <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
             <span>{errorMessage}</span>
+          </div>
+        )}
+
+        {assessment?.status === 'DRAFT' && readiness && !readiness.ready && (
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+            <div className="flex items-center gap-2 font-semibold mb-1.5">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>This assessment cannot be published yet</span>
+            </div>
+            <ul className="list-disc pl-6 space-y-0.5 font-medium">
+              {readiness.faults.map((fault, i) => (
+                <li key={i}>{fault}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {assessment?.status === 'READY' && (
+          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-xs text-emerald-800 font-medium">
+            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>
+              Checked and ready. Publishing makes it assignable; editing it sends it back to draft.
+            </span>
           </div>
         )}
 
@@ -249,14 +361,20 @@ export default function AssessmentDetailPage({ params }: { params: { id: string 
         <Drawer
           isOpen={isAssignDrawerOpen}
           onClose={() => setIsAssignDrawerOpen(false)}
-          title="Assign Assessment to Class Cohort"
+          title="Assign Assessment"
         >
           <div className="space-y-5">
             {assignedSuccess ? (
               <div className="p-8 text-center bg-emerald-50 text-emerald-800 rounded-2xl">
                 <CheckCircle2 className="w-12 h-12 mx-auto mb-2 text-emerald-600" />
                 <h3 className="text-lg font-bold">Successfully Assigned!</h3>
-                <p className="text-xs mt-1">Learners in this class have received their assessment checkpoints.</p>
+                <p className="text-xs mt-1">
+                  {assignScope === 'LEARNERS'
+                    ? `${pickedLearnerIds.length} learner${
+                        pickedLearnerIds.length === 1 ? '' : 's'
+                      } received this checkpoint.`
+                    : 'Learners in this class have received their assessment checkpoints.'}
+                </p>
               </div>
             ) : (
               <>
@@ -269,6 +387,75 @@ export default function AssessmentDetailPage({ params }: { params: { id: string 
                     value: c.id,
                   }))}
                 />
+
+                <div className="space-y-2">
+                  <span className="text-xs font-semibold text-[#082051]">Assign to</span>
+                  <div className="flex gap-2">
+                    {(['CLASS', 'LEARNERS'] as const).map((scope) => (
+                      <button
+                        key={scope}
+                        type="button"
+                        onClick={() => setAssignScope(scope)}
+                        className={`flex-1 px-3 py-2 rounded-xl border text-xs font-semibold transition ${
+                          assignScope === scope
+                            ? 'border-[#0967F7] bg-blue-50 text-[#0967F7]'
+                            : 'border-gray-200 text-[#656C79] hover:border-gray-300'
+                        }`}
+                      >
+                        {scope === 'CLASS' ? 'Whole class' : 'Selected learners'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {assignScope === 'LEARNERS' && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-[#082051]">
+                        Learners ({pickedLearnerIds.length} selected)
+                      </span>
+                      {roster.length > 0 && (
+                        <button
+                          type="button"
+                          className="text-[#0967F7] font-semibold hover:underline"
+                          onClick={() =>
+                            setPickedLearnerIds(
+                              pickedLearnerIds.length === roster.length
+                                ? []
+                                : roster.map((r) => r.learnerId)
+                            )
+                          }
+                        >
+                          {pickedLearnerIds.length === roster.length ? 'Clear all' : 'Select all'}
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="max-h-56 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-100">
+                      {rosterLoading ? (
+                        <p className="p-3 text-xs text-[#656C79]">Loading the roster...</p>
+                      ) : roster.length === 0 ? (
+                        <p className="p-3 text-xs text-[#656C79]">No learners enrolled in this class.</p>
+                      ) : (
+                        roster.map((r) => (
+                          <label
+                            key={r.learnerId}
+                            className="flex items-center gap-2.5 px-3 py-2 text-xs cursor-pointer hover:bg-gray-50"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={pickedLearnerIds.includes(r.learnerId)}
+                              onChange={() => toggleLearner(r.learnerId)}
+                              className="w-3.5 h-3.5"
+                            />
+                            <span className="font-medium text-[#082051]">{r.learnerName}</span>
+                            <span className="text-[#656C79] ml-auto">{r.learnerEmail}</span>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 <Input
                   label="Due Date (Optional)"

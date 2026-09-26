@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { Suspense, useState, useEffect, useCallback } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   AppShell,
   EntityHeader,
@@ -17,18 +17,26 @@ import {
 import { Check, Plus, Trash2, Clock, CheckSquare, AlertCircle, Eye, ArrowUp, ArrowDown, Search } from 'lucide-react';
 import { api } from '@/lib/api';
 
-export default function AssessmentBuilderPage() {
+function AssessmentBuilderForm() {
   const router = useRouter();
+  // `?draftId=…` reopens an existing draft. Without it the page behaves as it
+  // always has and creates a new assessment.
+  const searchParams = useSearchParams();
+  const draftId = searchParams.get('draftId');
   const [title, setTitle] = useState('IELTS Reading Checkpoint 04');
   const [description, setDescription] = useState('Checkpoint covering main idea, detail lookup, and inference skills.');
   const [instructions, setInstructions] = useState('Read the passage carefully and answer each question. You may review answers before final submission.');
   const [level, setLevel] = useState('B1');
   const [timeLimit, setTimeLimit] = useState(20);
-  const [passingScore, setPassingScore] = useState(70);
   const [initialStatus, setInitialStatus] = useState('PUBLISHED');
   const [questions, setQuestions] = useState<any[]>([]);
   const [selectedQIds, setSelectedQIds] = useState<string[]>([]);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  // Only for questions without a rubric; a rubric carries its own total.
+  const [itemPoints, setItemPoints] = useState<Record<string, number>>({});
+  const [loadingDraft, setLoadingDraft] = useState(false);
+  // Not an error: something the teacher should know before they save.
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Question search & filter
   const [bankSearch, setBankSearch] = useState('');
@@ -60,6 +68,60 @@ export default function AssessmentBuilderPage() {
     loadQuestions();
   }, [loadQuestions]);
 
+  // Reopen a draft. The backend refuses edits to anything past DRAFT, so a
+  // published paper cannot be reshaped underneath the learners sitting it.
+  useEffect(() => {
+    if (!draftId) return;
+    let cancelled = false;
+
+    (async () => {
+      setLoadingDraft(true);
+      setErrorMessage(null);
+      try {
+        const a = await api.getAssessment(draftId);
+        if (cancelled) return;
+
+        // Only a published or closed paper is frozen. A READY one may still
+        // be corrected, and saving sends it back to DRAFT for a fresh check.
+        if (a.status && a.status !== 'DRAFT' && a.status !== 'READY') {
+          setErrorMessage(
+            `This assessment is ${a.status} and can no longer be edited. Create a new one instead.`
+          );
+          return;
+        }
+
+        if (a.status === 'READY') {
+          setNotice('This assessment is ready to publish. Saving a change returns it to draft.');
+        }
+
+        setTitle(a.title || '');
+        setDescription(a.description || '');
+        setInstructions(a.instructions || '');
+        setLevel(a.level || 'B1');
+        setTimeLimit(a.timeLimitMinutes || 20);
+        setInitialStatus('DRAFT');
+
+        const items = a.items || a.questions || [];
+        setSelectedQIds(items.map((it: any) => it.questionId || it.question?.id).filter(Boolean));
+        setItemPoints(
+          Object.fromEntries(
+            items
+              .filter((it: any) => it.points != null)
+              .map((it: any) => [it.questionId || it.question?.id, Number(it.points)])
+          )
+        );
+      } catch (err: any) {
+        if (!cancelled) setErrorMessage(err.message || 'Failed to load the draft');
+      } finally {
+        if (!cancelled) setLoadingDraft(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [draftId]);
+
   const toggleQuestion = (id: string) => {
     if (selectedQIds.includes(id)) {
       setSelectedQIds(selectedQIds.filter((qId) => qId !== id));
@@ -86,19 +148,51 @@ export default function AssessmentBuilderPage() {
     setSaving(true);
     setErrorMessage(null);
     try {
-      const res = await api.createAssessment({
+      const payload = {
         title,
         description,
-        instructions,
+        instructions: instructions || undefined,
         level,
         timeLimitMinutes: Number(timeLimit),
         questionIds: selectedQIds,
-      });
+        itemPoints,
+      };
+
+      const res = draftId
+        ? await api.updateAssessment(draftId, payload)
+        : await api.createAssessment(payload);
 
       if (initialStatus === 'PUBLISHED') {
+        // The lifecycle is DRAFT -> READY -> PUBLISHED, so publishing from the
+        // builder is two calls. The readiness check runs in the first one and
+        // is where an incomplete paper is turned back.
+        //
+        // Swallowing either failure left the teacher on the assessment page
+        // believing it was published when it was still a draft - and nothing
+        // on that page says otherwise loudly enough to catch.
+        try {
+          await api.markAssessmentReady(res.id);
+        } catch (readyErr: any) {
+          setErrorMessage(
+            `Assessment saved as a draft, but it is not ready to publish: ${
+              readyErr?.message || 'unknown error'
+            }`
+          );
+          setSaving(false);
+          return;
+        }
+
         try {
           await api.publishAssessment(res.id);
-        } catch {}
+        } catch (publishErr: any) {
+          setErrorMessage(
+            `Assessment is ready, but publishing failed: ${
+              publishErr?.message || 'unknown error'
+            }`
+          );
+          setSaving(false);
+          return;
+        }
       }
 
       router.push(`/assessments/${res.id}`);
@@ -126,7 +220,29 @@ export default function AssessmentBuilderPage() {
     .map((id) => questions.find((q) => q.id === id))
     .filter(Boolean);
 
-  const totalPoints = selectedQuestionsList.length;
+  /**
+   * What one question is worth on this paper.
+   *
+   * A rubric decides its own total - the marking screen checks the two agree -
+   * so only questions without one are the teacher's to weight.
+   */
+  const rubricTotal = (q: any): number | null => {
+    if (!q?.rubric) return null;
+    try {
+      const parsed = typeof q.rubric === 'string' ? JSON.parse(q.rubric) : q.rubric;
+      if (!Array.isArray(parsed) || parsed.length === 0) return null;
+      return parsed.reduce((sum: number, c: any) => sum + (c.maxScore || 0), 0);
+    } catch {
+      return null;
+    }
+  };
+
+  const pointsFor = (q: any): number => rubricTotal(q) ?? itemPoints[q.id] ?? 1;
+
+  const totalPoints = selectedQuestionsList.reduce(
+    (sum: number, q: any) => sum + pointsFor(q),
+    0
+  );
 
   return (
     <AppShell currentPath="/assessments" roleMode="TEACHER">
@@ -161,6 +277,13 @@ export default function AssessmentBuilderPage() {
             </div>
           }
         />
+
+        {notice && !errorMessage && (
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-2 text-xs text-blue-800 font-medium">
+            <AlertCircle className="w-4 h-4 text-blue-600 shrink-0" />
+            <span>{notice}</span>
+          </div>
+        )}
 
         {errorMessage && (
           <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center justify-between gap-2 text-xs text-red-700 font-medium">
@@ -229,7 +352,28 @@ export default function AssessmentBuilderPage() {
                           <Badge variant="primary">{q.type}</Badge>
                           <Badge variant="default">{q.difficulty}</Badge>
                           <Badge variant="warning">{q.level}</Badge>
-                          <span className="text-xs text-[#5969AB]">1 point</span>
+                          {rubricTotal(q) != null ? (
+                            <span className="text-xs text-[#5969AB]">
+                              {rubricTotal(q)} pts from rubric
+                            </span>
+                          ) : (
+                            <label className="flex items-center gap-1.5 text-xs text-[#5969AB]">
+                              <span>Points</span>
+                              <input
+                                type="number"
+                                min={1}
+                                max={1000}
+                                value={itemPoints[q.id] ?? 1}
+                                onChange={(e) =>
+                                  setItemPoints((prev) => ({
+                                    ...prev,
+                                    [q.id]: Math.max(1, Number(e.target.value) || 1),
+                                  }))
+                                }
+                                className="w-14 px-1.5 py-0.5 border border-gray-200 rounded-md text-xs"
+                              />
+                            </label>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -300,24 +444,18 @@ export default function AssessmentBuilderPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <Input
-                  label="Time Limit (mins)"
-                  type="number"
-                  value={timeLimit}
-                  onChange={(e) => setTimeLimit(Number(e.target.value))}
-                />
-                <Input
-                  label="Passing Score (%)"
-                  type="number"
-                  value={passingScore}
-                  onChange={(e) => setPassingScore(Number(e.target.value))}
-                />
-              </div>
+              <Input
+                label="Time Limit (mins)"
+                type="number"
+                value={timeLimit}
+                onChange={(e) => setTimeLimit(Number(e.target.value))}
+              />
 
               <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-100 text-xs flex justify-between">
                 <span className="text-[#656C79]">Calculated Total:</span>
-                <span className="font-bold text-[#0967F7]">{totalPoints} questions / {totalPoints} pts</span>
+                <span className="font-bold text-[#0967F7]">
+                  {selectedQuestionsList.length} questions / {totalPoints} pts
+                </span>
               </div>
             </Card>
 
@@ -427,7 +565,9 @@ export default function AssessmentBuilderPage() {
             <div className="bg-blue-50/70 p-3.5 rounded-xl border border-blue-100 flex items-center justify-between">
               <div>
                 <span className="font-bold text-[#082051]">Time Allowed: {timeLimit} minutes</span>
-                <span className="text-[11px] text-[#656C79] block">Pass Mark: {passingScore}% • {totalPoints} questions</span>
+                <span className="text-[11px] text-[#656C79] block">
+                  {selectedQuestionsList.length} questions • {totalPoints} pts
+                </span>
               </div>
               <Badge variant="primary">{level}</Badge>
             </div>
@@ -494,5 +634,17 @@ export default function AssessmentBuilderPage() {
         </Dialog>
       </div>
     </AppShell>
+  );
+}
+
+export default function AssessmentBuilderPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-12 text-center text-sm text-[#656C79]">Loading the builder...</div>
+      }
+    >
+      <AssessmentBuilderForm />
+    </Suspense>
   );
 }

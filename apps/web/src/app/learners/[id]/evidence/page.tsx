@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   AppShell,
   EntityHeader,
@@ -20,7 +21,18 @@ import {
 import { Download, ArrowLeft, Filter, Edit2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { api } from '@/lib/api';
 
+/**
+ * How many observations to ask for at once.
+ *
+ * The endpoint caps at 100. Asking for the cap and then saying plainly when the
+ * answer is full is more honest than asking for 20 and printing the number as
+ * though it were the whole history.
+ */
+const EVIDENCE_PAGE_SIZE = 100;
+
 export default function EvidenceExplorerPage({ params }: { params: { id: string } }) {
+  const searchParams = useSearchParams();
+  const skillFilter = searchParams.get('skillId');
   const [evidenceList, setEvidenceList] = useState<any[]>([]);
   const [selectedEvidence, setSelectedEvidence] = useState<any | null>(null);
   const [isCorrectModalOpen, setIsCorrectModalOpen] = useState(false);
@@ -31,20 +43,20 @@ export default function EvidenceExplorerPage({ params }: { params: { id: string 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const searchParams = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
-  const skillId = searchParams.get('skillId');
 
   const loadEvidence = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const qs = new URLSearchParams();
-      qs.append('learnerId', params.id);
-      if (skillId) {
-        qs.append('skillId', skillId);
-      }
+      const query = [
+        `learnerId=${params.id}`,
+        `limit=${EVIDENCE_PAGE_SIZE}`,
+        skillFilter ? `skillId=${skillFilter}` : '',
+      ]
+        .filter(Boolean)
+        .join('&');
 
-      const list = await api.getEvidence(qs.toString());
+      const list = await api.getEvidence(query);
       setEvidenceList(list || []);
       if (list && list.length > 0) {
         setSelectedEvidence((prev: any) => {
@@ -58,7 +70,7 @@ export default function EvidenceExplorerPage({ params }: { params: { id: string 
     } finally {
       setLoading(false);
     }
-  }, [params.id, skillId]);
+  }, [params.id, skillFilter]);
 
   useEffect(() => {
     loadEvidence();
@@ -172,8 +184,14 @@ export default function EvidenceExplorerPage({ params }: { params: { id: string 
                 <span className="text-[11px] text-[#5969AB]">Skill Taxonomy Node</span>
               </Card>
               <Card className="p-4 border-gray-200/80">
-                <span className="text-xs text-[#656C79]">Evidence retained</span>
-                <div className="text-sm font-bold text-[#082051] mt-0.5">{evidenceList.length} items</div>
+                <span className="text-xs text-[#656C79]">
+                  {skillFilter ? 'Evidence for this skill' : 'Evidence retained'}
+                </span>
+                <div className="text-sm font-bold text-[#082051] mt-0.5">
+                  {evidenceList.length >= EVIDENCE_PAGE_SIZE
+                    ? `${EVIDENCE_PAGE_SIZE}+ items`
+                    : `${evidenceList.length} items`}
+                </div>
                 <span className="text-[11px] text-amber-700">{correctedCount} teacher-corrected</span>
               </Card>
               <Card className="p-4 border-gray-200/80">
@@ -204,8 +222,20 @@ export default function EvidenceExplorerPage({ params }: { params: { id: string 
               <div className="lg:col-span-2 space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-bold text-[#082051]">
-                    Retained Evidence ({evidenceList.length} items)
+                    {skillFilter ? 'Evidence for this skill' : 'Retained Evidence'} (
+                    {evidenceList.length >= EVIDENCE_PAGE_SIZE
+                      ? `most recent ${EVIDENCE_PAGE_SIZE}`
+                      : `${evidenceList.length} items`}
+                    )
                   </h3>
+                  {skillFilter && (
+                    <a
+                      href={`/learners/${params.id}/evidence`}
+                      className="text-xs font-bold text-[#0967F7] hover:underline"
+                    >
+                      Show all skills
+                    </a>
+                  )}
                 </div>
 
                 <div className="space-y-2.5">

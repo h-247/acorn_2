@@ -162,6 +162,7 @@ describe('Admin, Question Update & End-to-End Workflows', () => {
     const treeRes = await app.inject({
       method: 'GET',
       url: '/api/taxonomy/tree',
+      headers: { authorization: `Bearer ${adminToken}` },
     });
     expect(treeRes.statusCode).toBe(200);
     const tree = JSON.parse(treeRes.body);

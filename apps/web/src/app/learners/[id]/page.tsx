@@ -131,7 +131,11 @@ export default function LearnerProfilePage({ params }: { params: { id: string } 
                     <LearnerSkillCard
                       key={s.skillId}
                       skill={s}
-                      onSelectSubskill={(subId) => router.push(`/learners/${profile.learnerId}/evidence`)}
+                      // Carry the sub-skill through. Dropping it turned "why is this one what
+                      // it is?" into "show me everything", which is a different question.
+                      onSelectSubskill={(subId) =>
+                        router.push(`/learners/${profile.learnerId}/evidence?skillId=${subId}`)
+                      }
                     />
                   ))}
                 </div>

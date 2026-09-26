@@ -10,6 +10,7 @@ import {
   RecommendationAction,
   ConfidenceLevel,
   CEFRLevel,
+  cefrDistance,
   UserRole,
   AssignNextActivityRequestSchema,
   AssessmentStatus,
@@ -17,7 +18,23 @@ import {
   MaterialStatus,
 } from '@acorn/contracts';
 import { NotFoundError, ForbiddenError, BadRequestError } from '../../shared/errors.js';
+import { config } from '../../shared/config.js';
 import { computeSkillState } from '../learner-state/learner-state.service.js';
+
+/** One shape for the rationale, whatever an older row happens to hold. */
+function normaliseRationale(stored: unknown): Record<string, unknown> {
+  let value = stored;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return { texts: [value as string] };
+    }
+  }
+  if (Array.isArray(value)) return { texts: value as string[] };
+  if (value && typeof value === 'object') return value as Record<string, unknown>;
+  return { texts: [] };
+}
 
 export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
   // Get recommendation for a learner
@@ -108,35 +125,49 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
       // 2. Fetch all skills
       const allSkills = await db.select().from(schema.skills).orderBy(asc(schema.skills.code));
 
-      // Determine the learner's target skill needing practice:
-      // Lowest scoring skill with evidence, or if no evidence, the first skill
-      let targetSkill = allSkills[0];
-      let lowestScore = Infinity;
-      let targetEvidenceCount = 0;
-      let targetEvidenceIds: string[] = [];
-      let targetState = computeSkillState([]);
+      // Pick a skill to work on, and record which of three reasons it was
+      // picked for - because the sentence the teacher reads has to match it.
+      //
+      // This used to take the lowest-scoring skill with any evidence at all and
+      // then write "lower than target mastery" whatever the score was, so a
+      // learner sitting at 100% was told they were behind. A recommendation that
+      // misreports its own evidence undermines the one thing it is for.
+      const masteryTarget = config.masteryTarget;
 
-      for (const skill of allSkills) {
+      const scored = allSkills.map((skill) => {
         const evs = learnerEvidence.filter((e) => e.skillId === skill.id && !e.isSuperseded);
-        if (evs.length > 0) {
-          const st = computeSkillState(evs);
-          if (st.score !== null && st.score < lowestScore) {
-            lowestScore = st.score;
-            targetSkill = skill;
-            targetEvidenceCount = evs.length;
-            targetEvidenceIds = evs.map((e) => e.id);
-            targetState = st;
-          }
-        }
+        return { skill, evs, state: computeSkillState(evs) };
+      });
+
+      const measured = scored.filter((s) => s.evs.length > 0 && s.state.score !== null);
+      const belowTarget = measured
+        .filter((s) => (s.state.score as number) < masteryTarget)
+        .sort((a, b) => (a.state.score as number) - (b.state.score as number));
+      const untested = scored.filter((s) => s.evs.length === 0);
+
+      let chosen = belowTarget[0];
+      let basis: 'BELOW_TARGET' | 'NO_DATA' | 'CONSOLIDATION' = 'BELOW_TARGET';
+
+      if (!chosen) {
+        // Everything measured meets the target. An untested skill is the real
+        // gap now - not weakness, just something nobody has looked at yet.
+        chosen = untested[0];
+        basis = 'NO_DATA';
       }
 
-      // If no skills had evidence, target the first skill
-      if (lowestScore === Infinity && allSkills.length > 0) {
-        targetSkill = allSkills[0];
-        targetEvidenceCount = 0;
-        targetEvidenceIds = [];
-        targetState = computeSkillState([]);
+      if (!chosen) {
+        // Measured everywhere and meeting target everywhere. Still worth
+        // suggesting something, but as consolidation, not remediation.
+        chosen = [...measured].sort(
+          (a, b) => (a.state.score as number) - (b.state.score as number)
+        )[0];
+        basis = 'CONSOLIDATION';
       }
+
+      const targetSkill = chosen?.skill ?? allSkills[0];
+      const targetEvidenceCount = chosen?.evs.length ?? 0;
+      const targetEvidenceIds = chosen?.evs.map((e) => e.id) ?? [];
+      const targetState = chosen?.state ?? computeSkillState([]);
 
       // 3. Find candidate materials from PostgreSQL
       // G05: Materials are approved after review (APPROVED status).
@@ -148,17 +179,6 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
         .where(eq(schema.classEnrollments.learnerId, learnerId));
       const learnerClassIds = enrollments.map((e) => e.classId);
 
-      let courseTargetLevel = 'B1';
-      if (learnerClassIds.length > 0) {
-        const [learnerClass] = await db.select().from(schema.classes).where(eq(schema.classes.id, learnerClassIds[0]));
-        if (learnerClass) {
-          const [course] = await db.select().from(schema.courses).where(eq(schema.courses.id, learnerClass.courseId));
-          if (course && 'level' in course && course.level) {
-            courseTargetLevel = course.level as string;
-          }
-        }
-      }
-
       // Fetch materials released to those classes
       let releasedMaterialIds = new Set<string>();
       if (learnerClassIds.length > 0) {
@@ -168,6 +188,23 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
           .where(inArray(schema.classMaterials.classId, learnerClassIds));
         releasedMaterialIds = new Set(classMaterials.map((cm) => cm.materialId));
       }
+
+      // Reading the level off the skill described the taxonomy entry, not the
+      // learner - and every seeded skill carries B1, so the figure came out the
+      // same for everybody whatever class they were in.
+      const learnerClassRow = learnerClassIds.length
+        ? await db
+            .select({ classLevel: schema.classes.level, courseLevel: schema.courses.level })
+            .from(schema.classes)
+            .leftJoin(schema.courses, eq(schema.courses.id, schema.classes.courseId))
+            .where(inArray(schema.classes.id, learnerClassIds))
+            .limit(1)
+        : [];
+
+      const learnerLevel = (learnerClassRow[0]?.classLevel ||
+        learnerClassRow[0]?.courseLevel ||
+        targetSkill.level ||
+        CEFRLevel.B1) as CEFRLevel;
 
       const allMaterialsQuery = await db
         .select()
@@ -181,49 +218,79 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
       const matchingMaterials = allMaterials.filter((m) => m.primarySkillId === targetSkill.id);
 
       const candidatePlans: Array<{
-        materialId: string;
+        materialId: string | null;
         action: RecommendationAction;
         matchReason: string;
       }> = [];
 
-      if (matchingMaterials.length > 0) {
-        // Direct reuse candidate
-        const exactMatch = matchingMaterials.find((m) => m.level === courseTargetLevel) || matchingMaterials[0];
-        candidatePlans.push({
-          materialId: exactMatch.id,
-          action: RecommendationAction.REUSE,
-          matchReason: `Direct skill match for ${targetSkill.name} from teacher library.`,
-        });
+      /**
+       * REUSE is an exact level match, ADAPT is one rung away.
+       *
+       * Measured against the learner's level, not the taxonomy entry's: the
+       * question is whether this passage suits this learner, and every seeded
+       * skill carries B1 regardless of who is being taught.
+       */
+      const atDistance = (n: number) =>
+        matchingMaterials.filter((m) => cefrDistance(m.level, learnerLevel) === n);
 
-        // Adapt candidate if another material is available
-        const adaptMatch = matchingMaterials.find((m) => m.id !== exactMatch.id);
-        if (adaptMatch) {
-          candidatePlans.push({
-            materialId: adaptMatch.id,
-            action: RecommendationAction.ADAPT,
-            matchReason: `Adaptable passage for targeted ${courseTargetLevel} skill practice.`,
-          });
-        }
-      } else if (allMaterials.length > 0) {
-        // No direct skill match: offer general material with NO_MATCH
+      const reusable = atDistance(0)[0];
+      if (reusable) {
         candidatePlans.push({
-          materialId: allMaterials[0].id,
+          materialId: reusable.id,
+          action: RecommendationAction.REUSE,
+          matchReason: `${targetSkill.name} at ${learnerLevel}, ready to use as it stands.`,
+        });
+      }
+
+      // Adjacent only. A B1 learner handed a C1 passage is not "adapting"; the
+      // honest answer there is that the library has nothing suitable.
+      const adaptable = atDistance(1).find((m) => m.id !== reusable?.id);
+      if (adaptable) {
+        candidatePlans.push({
+          materialId: adaptable.id,
+          action: RecommendationAction.ADAPT,
+          matchReason: `${targetSkill.name} at ${adaptable.level}, one level from ${learnerLevel} — adapt before use.`,
+        });
+      }
+
+      if (candidatePlans.length === 0) {
+        // Nothing to point at, so point at nothing. Attaching an unrelated
+        // material here made the empty case look like a suggestion, and an
+        // empty library produced no card at all - leaving the teacher with a
+        // recommendation and no way to act on it.
+        const shortfall = matchingMaterials.length
+          ? `The library has ${matchingMaterials.length} ${targetSkill.name} material(s), but none at or next to ${learnerLevel}.`
+          : `The library has no ${targetSkill.name} material released to this learner's class.`;
+
+        candidatePlans.push({
+          materialId: null,
           action: RecommendationAction.NO_MATCH,
-          matchReason: `No existing materials currently match ${targetSkill.name}. Author new material in library.`,
+          matchReason: `${shortfall} Author new material for ${targetSkill.name} at ${learnerLevel}.`,
         });
       }
 
       const recId = randomUUID();
       const now = new Date();
 
+      const pct = targetState.scorePercentage;
+      const targetPct = Math.round(masteryTarget * 100);
+
+      const openingLine =
+        basis === 'BELOW_TARGET'
+          ? `${targetSkill.name} is at ${pct}%, below the ${targetPct}% target.`
+          : basis === 'NO_DATA'
+            ? `No evidence recorded for ${targetSkill.name} yet — practice here to find out where the learner stands.`
+            : `${targetSkill.name} already meets the ${targetPct}% target at ${pct}%; suggested for consolidation rather than remediation.`;
+
       const rationale = {
+        // The basis is kept alongside the sentence so a reader can check the two
+        // agree, and so a later change to the wording cannot drift from the rule
+        // that produced it.
+        basis,
+        masteryTarget,
         texts: [
-          targetEvidenceCount > 0
-            ? (targetState.scorePercentage ?? 0) >= 90
-              ? `Performance in ${targetSkill.name} shows mastery; ready for advanced challenge.`
-              : `Performance in ${targetSkill.name} is lower than target mastery.`
-            : `Foundational practice in ${targetSkill.name} to establish baseline evidence.`,
-          `Aligned with CEFR ${courseTargetLevel} curriculum objectives.`,
+          openingLine,
+          `Aligned with CEFR ${learnerLevel} curriculum objectives.`,
           `Grounded in ${targetEvidenceCount} recorded learning evidence observation(s).`,
         ],
         grounding: {
@@ -234,6 +301,8 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
           targetSkillName: targetSkill.name,
           score: targetState.score,
           confidence: targetState.confidence,
+          masteryTarget,
+          basis,
         }
       };
 
@@ -244,8 +313,15 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
             id: recId,
             learnerId,
             targetSkillId: targetSkill.id,
-            targetLevel: courseTargetLevel as CEFRLevel,
-            priority: (targetState.scorePercentage ?? 100) < 60 ? 'HIGH' : 'MEDIUM',
+            targetLevel: learnerLevel,
+            // Only a shortfall can be urgent. Filling a gap in what we know, or
+            // consolidating something already met, is never HIGH.
+            priority:
+              basis === 'BELOW_TARGET' && (targetState.scorePercentage ?? 100) < 60
+                ? 'HIGH'
+                : basis === 'CONSOLIDATION'
+                  ? 'LOW'
+                  : 'MEDIUM',
             recommendedActionText: `Focus on ${targetSkill.name}`,
             rationale,
             evidenceBasisCount: targetEvidenceCount,
@@ -276,7 +352,9 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
       .from(schema.recommendationCandidates)
       .where(eq(schema.recommendationCandidates.recommendationId, rec.id));
 
-    const materialIds = candidateRows.map((c) => c.materialId);
+    const materialIds = candidateRows
+      .map((c) => c.materialId)
+      .filter((x): x is string => Boolean(x));
     const materials = materialIds.length > 0
       ? await db.select().from(schema.materials).where(inArray(schema.materials.id, materialIds))
       : [];
@@ -284,17 +362,34 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
     const matMap = new Map(materials.map((m) => [m.id, m]));
 
     const candidates = candidateRows.map((rc) => {
-      const mat = matMap.get(rc.materialId);
+      const mat = rc.materialId ? matMap.get(rc.materialId) : undefined;
+
+      // A NO_MATCH card stands for the absence of a material, so it must not
+      // borrow a title, a level or a duration it does not have.
+      if (!mat) {
+        return {
+          materialId: null,
+          title: null,
+          type: null,
+          level: null,
+          estimatedMinutes: null,
+          action: rc.action as RecommendationAction,
+          matchReason: rc.matchReason,
+          tags: [],
+          previouslyUsedCount: 0,
+        };
+      }
+
       return {
         materialId: rc.materialId,
-        title: mat?.title || 'Target Practice Material',
-        type: (mat?.type as any) || 'ARTICLE',
-        level: (mat?.level as CEFRLevel) || CEFRLevel.B1,
-        estimatedMinutes: mat?.estimatedMinutes || 10,
+        title: mat.title,
+        type: mat.type as any,
+        level: mat.level as CEFRLevel,
+        estimatedMinutes: mat.estimatedMinutes || 10,
         action: rc.action as RecommendationAction,
         matchReason: rc.matchReason,
-        tags: ['ielts', 'reading'],
-        previouslyUsedCount: mat?.usageCount || 0,
+        tags: mat.tags ?? [],
+        previouslyUsedCount: mat.usageCount || 0,
       };
     });
 
@@ -319,9 +414,9 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
       targetLevel: rec.targetLevel as CEFRLevel,
       priority: rec.priority as 'HIGH' | 'MEDIUM' | 'LOW',
       recommendedActionText: rec.recommendedActionText,
-      rationale: typeof rec.rationale === 'string'
-        ? JSON.parse(rec.rationale)
-        : (rec.rationale ?? []),
+      // Older rows hold a bare array of sentences, and some hold it as text.
+      // Normalise on the way out so every client sees one shape.
+      rationale: normaliseRationale(rec.rationale),
       evidenceBasisCount: rec.evidenceBasisCount,
       learnerCurrentScore: rec.learnerCurrentScore,
       learnerConfidence: rec.learnerConfidence as ConfidenceLevel,
@@ -375,6 +470,37 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
       recommendationId: id,
     });
 
+    const candidateRows = await db
+      .select()
+      .from(schema.recommendationCandidates)
+      .where(eq(schema.recommendationCandidates.recommendationId, id));
+
+    // The material has to be one this recommendation actually offered.
+    // Unchecked, the field accepted any id in the database, including one from
+    // someone else's recommendation.
+    if (body.selectedMaterialId) {
+      const offered = candidateRows.some((c) => c.materialId === body.selectedMaterialId);
+      if (!offered) {
+        throw new BadRequestError(
+          'The selected material is not one of the candidates for this recommendation.'
+        );
+      }
+    }
+
+    const modifiedText = body.modifiedActionText?.trim() || null;
+
+    if (body.decision === TeacherDecisionStatus.MODIFY) {
+      // Otherwise MODIFY is ACCEPT with a different label on it, and the audit
+      // trail cannot say what the teacher changed.
+      const changedText = Boolean(modifiedText) && modifiedText !== rec.recommendedActionText;
+      const changedMaterial = Boolean(body.selectedMaterialId);
+      if (!changedText && !changedMaterial) {
+        throw new BadRequestError(
+          'A MODIFY decision must change something: pick a different material or rewrite the action.'
+        );
+      }
+    }
+
     const now = new Date();
 
     const result = await db.transaction(async (tx) => {
@@ -383,7 +509,7 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
         .update(schema.recommendations)
         .set({
           decisionStatus: body.decision,
-          recommendedActionText: body.modifiedActionText || rec.recommendedActionText,
+          recommendedActionText: modifiedText || rec.recommendedActionText,
         })
         .where(eq(schema.recommendations.id, id));
 
@@ -408,8 +534,12 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
         entityId: id,
         metadata: {
           decision: body.decision,
-          selectedMaterialId: body.selectedMaterialId,
-          teacherNotes: body.teacherNotes,
+          selectedMaterialId: body.selectedMaterialId ?? null,
+          teacherNotes: body.teacherNotes ?? null,
+          // What the teacher changed, so the trail shows the edit and not just
+          // that an edit happened.
+          originalActionText: rec.recommendedActionText,
+          modifiedActionText: modifiedText,
         },
       });
 
@@ -630,25 +760,36 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
           throw new BadRequestError('Cannot assign an assessment that is not published');
         }
 
-        const existingAssignments = await tx
+        // The recommendation is about one learner, so the paper goes to that
+        // learner. The class, when there is one, is context for the teacher's
+        // views and the material release below - never a wider audience.
+        const [existingAssignment] = await tx
           .select()
           .from(schema.assignments)
           .where(
             and(
               eq(schema.assignments.assessmentId, body.assessmentId),
-              targetClassId ? eq(schema.assignments.classId, targetClassId) : eq(schema.assignments.learnerId, rec.learnerId),
-              eq(schema.assignments.status, 'OPEN')
+              eq(schema.assignments.learnerId, rec.learnerId)
             )
           );
 
-        let assignment = existingAssignments[0];
-        if (!assignment) {
+        let assignment = existingAssignment;
+        if (assignment) {
+          if (body.dueAt !== undefined || assignment.status !== 'OPEN') {
+            const [refreshed] = await tx
+              .update(schema.assignments)
+              .set({ dueAt: body.dueAt ? new Date(body.dueAt) : null, status: 'OPEN' })
+              .where(eq(schema.assignments.id, assignment.id))
+              .returning();
+            assignment = refreshed;
+          }
+        } else {
           const [newAssign] = await tx
             .insert(schema.assignments)
             .values({
               assessmentId: body.assessmentId,
               classId: targetClassId || null,
-              learnerId: targetClassId ? null : rec.learnerId,
+              learnerId: rec.learnerId,
               dueAt: body.dueAt ? new Date(body.dueAt) : null,
               status: 'OPEN',
             })
@@ -658,39 +799,19 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
 
         createdAssignmentId = assignment.id;
 
-        // Create initial submission for the learner(s)
-        const targetLearnerIds = [rec.learnerId];
-        if (targetClassId) {
-          const enrollments = await tx
-            .select({ learnerId: schema.classEnrollments.learnerId })
-            .from(schema.classEnrollments)
-            .where(eq(schema.classEnrollments.classId, targetClassId));
-          for (const e of enrollments) {
-            targetLearnerIds.push(e.learnerId);
-          }
-        }
-
-        for (const lId of Array.from(new Set(targetLearnerIds))) {
-          const existingSub = await tx
-            .select({ id: schema.submissions.id })
-            .from(schema.submissions)
-            .where(
-              and(
-                eq(schema.submissions.assignmentId, assignment.id),
-                eq(schema.submissions.learnerId, lId)
-              )
-            );
-
-          if (existingSub.length === 0) {
-            await tx.insert(schema.submissions).values({
-              assignmentId: assignment.id,
-              assessmentId: body.assessmentId,
-              learnerId: lId,
-              status: SubmissionStatus.STARTED,
-              maxPossibleScore: 100,
-            });
-          }
-        }
+        // One attempt, for the learner named on the recommendation.
+        await tx
+          .insert(schema.submissions)
+          .values({
+            assignmentId: assignment.id,
+            assessmentId: body.assessmentId,
+            learnerId: rec.learnerId,
+            status: SubmissionStatus.STARTED,
+            maxPossibleScore: 100,
+          })
+          .onConflictDoNothing({
+            target: [schema.submissions.assignmentId, schema.submissions.learnerId],
+          });
       }
 
       // 4. If materialId is specified, release to class

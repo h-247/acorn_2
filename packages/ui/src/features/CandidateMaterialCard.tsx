@@ -5,7 +5,7 @@ import type { CandidateMaterialDTO } from '@acorn/contracts';
 
 export interface CandidateMaterialCardProps {
   candidate: CandidateMaterialDTO;
-  onAction: (action: 'REUSE' | 'ADAPT' | 'NO_MATCH', materialId: string) => void;
+  onAction: (action: 'REUSE' | 'ADAPT' | 'NO_MATCH', materialId: string | null) => void;
   onPreview?: (materialId: string) => void;
 }
 
@@ -24,10 +24,14 @@ export const CandidateMaterialCard: React.FC<CandidateMaterialCardProps> = ({
     <div className="bg-white rounded-xl border border-gray-200/80 p-4 hover:border-gray-300 transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-1">
-          <span className="text-sm font-bold text-[#082051]">{candidate.title}</span>
-          <Badge variant="primary">{candidate.level}</Badge>
-          <Badge variant="default">{candidate.type}</Badge>
-          <span className="text-xs text-[#656C79]">{candidate.estimatedMinutes} min</span>
+          <span className="text-sm font-bold text-[#082051]">
+            {candidate.title ?? 'Nothing in the library fits yet'}
+          </span>
+          {candidate.level && <Badge variant="primary">{candidate.level}</Badge>}
+          {candidate.type && <Badge variant="default">{candidate.type}</Badge>}
+          {candidate.estimatedMinutes != null && (
+            <span className="text-xs text-[#656C79]">{candidate.estimatedMinutes} min</span>
+          )}
         </div>
         <p className="text-xs text-[#656C79] mb-2">{candidate.matchReason}</p>
         <div className="flex items-center gap-1.5 flex-wrap">
@@ -45,8 +49,8 @@ export const CandidateMaterialCard: React.FC<CandidateMaterialCardProps> = ({
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
-        {onPreview && (
-          <Button variant="ghost" size="sm" onClick={() => onPreview(candidate.materialId)}>
+        {onPreview && candidate.materialId && (
+          <Button variant="ghost" size="sm" onClick={() => onPreview(candidate.materialId!)}>
             Preview
           </Button>
         )}

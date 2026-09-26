@@ -41,6 +41,8 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
   const [submissionId, setSubmissionId] = useState<string>(params.id);
   const [title, setTitle] = useState('Assessment Checkpoint');
   const [submissionStatus, setSubmissionStatus] = useState<string>('STARTED');
+  // Set when the teacher closed the assessment or the assignment behind it.
+  const [isClosed, setIsClosed] = useState(false);
   const [overallScore, setOverallScore] = useState<number | null>(null);
   const [teacherFeedback, setTeacherFeedback] = useState<string | null>(null);
   const [customPassage, setCustomPassage] = useState<string | null>(null);
@@ -79,6 +81,7 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
       if (sub?.id) setSubmissionId(sub.id);
       if (sub?.assessmentTitle) setTitle(sub.assessmentTitle);
       setSubmissionStatus(sub?.status || 'STARTED');
+      setIsClosed(Boolean(sub?.isClosed));
       setOverallScore(sub?.overallScore ?? null);
       setTeacherFeedback(sub?.teacherFeedback || null);
       setAssessmentInstructions(sub?.assessmentInstructions || null);
@@ -172,7 +175,18 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
     return () => window.removeEventListener('online', handleOnline);
   }, [autosaveStatus, retrySync]);
 
-  const isReadOnly = submissionStatus === 'SUBMITTED' || submissionStatus === 'EVALUATED';
+  /**
+   * The attempt has been handed in, so there is a result to show.
+   *
+   * Distinct from isReadOnly below: a paper closed before the learner
+   * submitted is equally unwritable, but there is nothing to review and saying
+   * otherwise would tell them their work went in when it did not.
+   */
+  const isReviewMode = submissionStatus === 'SUBMITTED' || submissionStatus === 'EVALUATED';
+
+  // Nothing can be written: the backend refuses every write to a submitted or
+  // closed attempt, so letting the learner keep typing would only lose it.
+  const isReadOnly = isReviewMode || isClosed;
 
   // Submit Logic
   const executeSubmit = useCallback(async () => {
@@ -515,7 +529,11 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
           <div>
             {isReadOnly ? (
               <Badge variant={submissionStatus === 'EVALUATED' ? 'success' : 'default'}>
-                {submissionStatus === 'EVALUATED' ? 'Evaluated' : 'Awaiting Review'}
+                {submissionStatus === 'EVALUATED'
+                  ? 'Evaluated'
+                  : submissionStatus === 'SUBMITTED'
+                    ? 'Awaiting Review'
+                    : 'Closed'}
               </Badge>
             ) : (
               <span className="flex items-center gap-1 text-[#0967F7]">
@@ -533,8 +551,18 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
         </div>
       )}
 
+      {isClosed && submissionStatus !== 'SUBMITTED' && submissionStatus !== 'EVALUATED' && (
+        <div className="bg-amber-50 border-b border-amber-200 px-6 py-2.5 flex items-center gap-2 text-xs text-amber-800 font-medium">
+          <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+          <span>
+            Your teacher closed this assessment before you submitted. Your saved answers are kept,
+            but no further changes can be made. Speak to your teacher if this is unexpected.
+          </span>
+        </div>
+      )}
+
       {/* Review Mode Banner */}
-      {isReadOnly && (
+      {isReviewMode && (
         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100 px-6 py-3.5 text-xs text-[#082051] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-xs">
           <div className="flex items-center gap-2">
             <span className="text-base">📋</span>
@@ -671,7 +699,7 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
             </span>
             <div className="flex items-center gap-2">
               <Badge variant="primary">{currentQ?.type || 'MCQ'}</Badge>
-              {isReadOnly && currentQ?.isCorrect !== undefined && (
+              {isReviewMode && currentQ?.isCorrect !== undefined && (
                 <Badge
                   variant={
                     currentQ.isCorrect === true
@@ -906,7 +934,7 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
           </div>
 
           {/* Detailed Question Review for Evaluated Submissions */}
-          {isReadOnly && (
+          {isReviewMode && (
             <div className="space-y-2.5 pt-2 border-t border-gray-100">
               {currentQ?.teacherFeedback && (
                 <div className="bg-emerald-50 p-3.5 rounded-xl border border-emerald-100 text-xs text-emerald-950 space-y-1">
@@ -937,9 +965,11 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
           )}
 
           <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100 text-[11px] text-[#5969AB]">
-            {isReadOnly
+            {isReviewMode
               ? '📌 Your responses are preserved exactly as submitted for academic evidence.'
-              : '💡 Answers are autosaved as you complete each question.'}
+              : isClosed
+                ? '📌 Your saved answers are kept as they were when the assessment closed.'
+                : '💡 Answers are autosaved as you complete each question.'}
           </div>
         </div>
 
@@ -954,9 +984,9 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
               const isAnswered = !!answers[q.id];
 
               let statusColor = 'bg-[#F3F6FC] text-[#656C79] border-gray-100 hover:bg-gray-100';
-              if (isReadOnly && q.isCorrect === true) {
+              if (isReviewMode && q.isCorrect === true) {
                 statusColor = 'bg-emerald-50 text-emerald-800 border-emerald-300';
-              } else if (isReadOnly && q.isCorrect === false) {
+              } else if (isReviewMode && q.isCorrect === false) {
                 statusColor = 'bg-red-50 text-red-800 border-red-300';
               } else if (isCurrent) {
                 statusColor = 'bg-[#0967F7] text-white border-[#0967F7]';
@@ -973,10 +1003,10 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
                   }`}
                 >
                   <span>{idx + 1}</span>
-                  {isReadOnly && q.isCorrect === true && (
+                  {isReviewMode && q.isCorrect === true && (
                     <Check className="w-3 h-3 text-emerald-600" />
                   )}
-                  {isReadOnly && q.isCorrect === false && (
+                  {isReviewMode && q.isCorrect === false && (
                     <X className="w-3 h-3 text-red-600" />
                   )}
                 </button>
@@ -985,7 +1015,7 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
           </div>
 
           <div className="text-[11px] text-[#656C79] space-y-1.5 pt-2 border-t border-gray-100">
-            {isReadOnly ? (
+            {isReviewMode ? (
               <>
                 <div className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-500" /> Correct
@@ -1013,7 +1043,11 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
         <div className="flex items-center gap-2 text-xs font-medium">
           <CheckCircle2 className="w-4 h-4 text-emerald-600" />
           <span className={autosaveStatus === 'Saved locally' ? 'text-amber-700 font-semibold' : 'text-emerald-700'}>
-            {isReadOnly ? 'Submission finalized' : autosaveStatus}
+            {isReviewMode
+              ? 'Submission finalized'
+              : isClosed
+                ? 'Assessment closed — answers kept'
+                : autosaveStatus}
           </span>
           {!isReadOnly && autosaveStatus === 'Saved locally' && (
             <button

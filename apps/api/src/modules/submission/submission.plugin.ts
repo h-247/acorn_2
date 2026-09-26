@@ -19,6 +19,7 @@ import { NotFoundError, BadRequestError, ForbiddenError } from '../../shared/err
 import { storage } from '../../infrastructure/object-storage/storage.js';
 import { recomputeLearnerSkillState } from '../learner-state/learner-state.service.js';
 import { appendEvidence, supersedeEvidence } from '../evidence/evidence.service.js';
+import { assignmentReachesLearner } from '../assessment/assignment-reach.js';
 
 async function assertTeacherSubmissionAccess(user: AuthContext, sub: typeof schema.submissions.$inferSelect) {
   if (user.role !== UserRole.TEACHER) return;
@@ -54,6 +55,36 @@ async function assertTeacherSubmissionAccess(user: AuthContext, sub: typeof sche
     if (!ass || ass.createdBy !== user.id) {
       throw new ForbiddenError('You do not have permission to access this submission');
     }
+  }
+}
+
+/**
+ * Refuse work on an attempt whose assessment or assignment has been closed.
+ *
+ * Closing is a deliberate act by a teacher and ends the window for everyone.
+ * It is not the same as being late: a learner past the due date is still
+ * accepted, and recorded as late (see the submit route). Only a close stops
+ * the attempt outright.
+ */
+async function assertAttemptStillOpen(sub: typeof schema.submissions.$inferSelect): Promise<void> {
+  const [assessment] = await db
+    .select({ status: schema.assessments.status })
+    .from(schema.assessments)
+    .where(eq(schema.assessments.id, sub.assessmentId));
+
+  if (assessment?.status === AssessmentStatus.CLOSED) {
+    throw new BadRequestError('This assessment has been closed and no longer accepts work.');
+  }
+
+  if (!sub.assignmentId) return;
+
+  const [assignment] = await db
+    .select({ status: schema.assignments.status })
+    .from(schema.assignments)
+    .where(eq(schema.assignments.id, sub.assignmentId));
+
+  if (assignment?.status === 'CLOSED') {
+    throw new BadRequestError('This assignment has been closed and no longer accepts work.');
   }
 }
 
@@ -147,6 +178,10 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
         evaluatedAt: sub.evaluatedAt ? sub.evaluatedAt.toISOString() : null,
         dueAt: assignment?.dueAt ? assignment.dueAt.toISOString() : null,
         timeLimitMinutes: assessment?.timeLimitMinutes ?? null,
+        assessmentStatus: assessment?.status ?? null,
+        // The one flag the player needs: can this attempt still be worked on?
+        isClosed:
+          assessment?.status === AssessmentStatus.CLOSED || assignment?.status === 'CLOSED',
         assessmentTitle: assessment?.title || 'Assessment',
         assessmentInstructions: assessment?.instructions || null,
         learnerName: learner?.name || 'Student',
@@ -201,8 +236,8 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
             )
           );
 
-        const validAssignment = openAssignments.find(
-          (a) => a.learnerId === user.id || (a.classId && classIds.includes(a.classId))
+        const validAssignment = openAssignments.find((a) =>
+          assignmentReachesLearner(a, user.id, classIds)
         );
 
         if (!validAssignment) {
@@ -290,6 +325,11 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
       evaluatedAt: sub.evaluatedAt ? sub.evaluatedAt.toISOString() : null,
       dueAt: assignment?.dueAt ? assignment.dueAt.toISOString() : null,
       timeLimitMinutes: assessment?.timeLimitMinutes ?? null,
+      assessmentStatus: assessment?.status ?? null,
+      // The player turns read-only on this rather than discovering the close
+      // when an autosave comes back 400.
+      isClosed:
+        assessment?.status === AssessmentStatus.CLOSED || assignment?.status === 'CLOSED',
       assessmentTitle: assessment?.title || 'Assessment',
       assessmentInstructions: assessment?.instructions || null,
       learnerName: learner?.name || 'Student',
@@ -366,6 +406,8 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
     if (sub.status === SubmissionStatus.SUBMITTED || sub.status === SubmissionStatus.EVALUATED) {
       throw new BadRequestError('Cannot autosave a submitted or evaluated assessment');
     }
+
+    await assertAttemptStillOpen(sub);
 
     // Validate questionId belongs to assessment
     const [item] = await db
@@ -448,6 +490,7 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
       throw new BadRequestError('Cannot modify a submitted or evaluated assessment');
     }
 
+    await assertAttemptStillOpen(sub);
 
     const data = await request.file();
     if (!data) throw new BadRequestError('Audio file is required');
@@ -633,22 +676,25 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
       submissionId: id,
     });
 
+    // A learner who already submitted keeps their result even after a close;
+    // the idempotent branch above returns before this point.
+    await assertAttemptStillOpen(sub);
+
     const now = new Date();
 
-    // Check assignment status & late submission policy
     const [assignment] = sub.assignmentId
       ? await db.select().from(schema.assignments).where(eq(schema.assignments.id, sub.assignmentId))
       : [null];
-
-    if (assignment && assignment.status === 'CLOSED') {
-      throw new BadRequestError('Assignment is closed and cannot accept submissions');
-    }
 
     const [assessment] = await db
       .select()
       .from(schema.assessments)
       .where(eq(schema.assessments.id, sub.assessmentId));
 
+    // Policy: being late is recorded, not refused. Overrunning the due date or
+    // the time limit marks the attempt and lets the teacher decide what it is
+    // worth; only a closed assessment or assignment turns work away, which the
+    // gate above has already done.
     let isLate = false;
     let lateMinutes = 0;
     const GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes grace period

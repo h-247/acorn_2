@@ -3,12 +3,16 @@ import { Target } from 'lucide-react';
 import { Badge } from '../primitives/Badge';;
 import { CandidateMaterialCard } from './CandidateMaterialCard';;
 import { TeacherDecisionBar } from './TeacherDecisionBar';;
+import type { TeacherDecisionDetail } from './TeacherDecisionBar';
 import type { RecommendationDTO } from '@acorn/contracts';
 
 export interface RecommendationPanelProps {
   recommendation: RecommendationDTO;
-  onDecision: (decision: 'ACCEPT' | 'MODIFY' | 'REJECT', notes?: string) => void;
-  onCandidateAction: (action: 'REUSE' | 'ADAPT' | 'NO_MATCH', materialId: string) => void;
+  onDecision: (
+    decision: 'ACCEPT' | 'MODIFY' | 'REJECT',
+    detail: TeacherDecisionDetail
+  ) => void;
+  onCandidateAction: (action: 'REUSE' | 'ADAPT' | 'NO_MATCH', materialId: string | null) => void;
 }
 
 export const RecommendationPanel: React.FC<RecommendationPanelProps> = ({
@@ -39,14 +43,17 @@ export const RecommendationPanel: React.FC<RecommendationPanelProps> = ({
               <div className="space-y-1 mt-3">
                 <span className="text-xs font-semibold text-[#082051]">Evidence Rationale:</span>
                 <ul className="text-xs text-[#5969AB] list-disc list-inside space-y-0.5">
-                  {(() => {
-                    const r = typeof recommendation.rationale === 'string'
-                      ? JSON.parse(recommendation.rationale)
-                      : recommendation.rationale;
-                    const items = Array.isArray(r) ? r : Array.isArray(r?.texts) ? r.texts : [];
-                    return items.map((text: string, i: number) => <li key={i}>{text}</li>);
-                  })()}
+                  {(recommendation.rationale?.texts ?? []).map((r, i) => (
+                    <li key={i}>{r}</li>
+                  ))}
                 </ul>
+                {recommendation.rationale?.basis && (
+                  <p className="text-[11px] text-[#656C79] pt-1">
+                    Basis: <span className="font-semibold">{recommendation.rationale.basis}</span>
+                    {recommendation.rationale.basis === 'NO_DATA' &&
+                      ' — nothing has been measured here yet, which is not the same as a weakness.'}
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -63,9 +70,9 @@ export const RecommendationPanel: React.FC<RecommendationPanelProps> = ({
             </span>
           </div>
           <div className="space-y-3">
-            {(recommendation.candidates || []).map((candidate) => (
+            {(recommendation.candidates || []).map((candidate, i) => (
               <CandidateMaterialCard
-                key={candidate.materialId}
+                key={candidate.materialId ?? `no-match-${i}`}
                 candidate={candidate}
                 onAction={onCandidateAction}
               />
@@ -76,7 +83,11 @@ export const RecommendationPanel: React.FC<RecommendationPanelProps> = ({
 
       {/* Decision column */}
       <div>
-        <TeacherDecisionBar onDecision={onDecision} />
+        <TeacherDecisionBar
+          onDecision={onDecision}
+          candidates={recommendation.candidates as any}
+          currentActionText={recommendation.recommendedActionText}
+        />
       </div>
     </div>
   );

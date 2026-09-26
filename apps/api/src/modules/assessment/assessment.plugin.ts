@@ -1,7 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { db } from '../../infrastructure/persistence/db.js';
 import * as schema from '../../infrastructure/persistence/schema.js';
-import { eq, and, or, desc, inArray, sql } from 'drizzle-orm';
+import { eq, and, or, desc, inArray, isNull, sql } from 'drizzle-orm';
 import { authenticate, requireRole, assertClassAccess, assertLearnerAccess } from '../../infrastructure/auth/auth.js';
 import {
   CreateQuestionRequestSchema,
@@ -9,12 +9,135 @@ import {
   CreateAssessmentRequestSchema,
   AssignAssessmentRequestSchema,
   AssessmentStatus,
+  QuestionType,
   UserRole,
+  findQuestionShapeFaults,
 } from '@acorn/contracts';
 import { NotFoundError, BadRequestError, ForbiddenError } from '../../shared/errors.js';
+import { assignmentReachesLearnerSql } from './assignment-reach.js';
 import { z } from 'zod';
 
 const UpdateQuestionSchema = CreateQuestionRequestSchemaBase.partial();
+
+/**
+ * The lifecycle from `docs/canonical/06-state-workflow.md`.
+ *
+ * READY is the gate: a paper is checked once, on the way in, and only a
+ * checked paper can be published. Editing a READY paper drops it back to
+ * DRAFT, so the check can never be bypassed by editing after passing it.
+ */
+const ALLOWED_TRANSITIONS: Record<string, string[]> = {
+  [AssessmentStatus.DRAFT]: [AssessmentStatus.READY],
+  [AssessmentStatus.READY]: [AssessmentStatus.DRAFT, AssessmentStatus.PUBLISHED],
+  [AssessmentStatus.PUBLISHED]: [AssessmentStatus.CLOSED],
+  [AssessmentStatus.CLOSED]: [],
+};
+
+function assertTransition(from: string, to: string): void {
+  if (from === to) {
+    throw new BadRequestError(`This assessment is already ${to}.`);
+  }
+  if (!(ALLOWED_TRANSITIONS[from] || []).includes(to)) {
+    throw new BadRequestError(`An assessment cannot go from ${from} to ${to}.`);
+  }
+}
+
+/**
+ * Everything that would make a paper unusable once learners sit it.
+ *
+ * Checked before READY and again before PUBLISHED: the second pass costs one
+ * query and protects against a paper whose questions were changed underneath
+ * it between the two steps.
+ */
+async function findAssessmentFaults(assessmentId: string): Promise<string[]> {
+  const faults: string[] = [];
+
+  const items = await db
+    .select({
+      questionId: schema.assessmentItems.questionId,
+      sequenceOrder: schema.assessmentItems.sequenceOrder,
+      points: schema.assessmentItems.points,
+      type: schema.questions.type,
+      sourceMaterialId: schema.questions.sourceMaterialId,
+      prompt: schema.questions.prompt,
+      options: schema.questions.options,
+      correctAnswer: schema.questions.correctAnswer,
+      rubric: schema.questions.rubric,
+    })
+    .from(schema.assessmentItems)
+    .innerJoin(schema.questions, eq(schema.questions.id, schema.assessmentItems.questionId))
+    .where(eq(schema.assessmentItems.assessmentId, assessmentId))
+    .orderBy(schema.assessmentItems.sequenceOrder);
+
+  if (items.length === 0) {
+    return ['The assessment has no questions.'];
+  }
+
+  const skillRows = await db
+    .select({ questionId: schema.questionSkills.questionId })
+    .from(schema.questionSkills)
+    .where(inArray(schema.questionSkills.questionId, items.map((i) => i.questionId)));
+  const questionsWithSkill = new Set(skillRows.map((r) => r.questionId));
+
+  for (const item of items) {
+    const label = `Question ${item.sequenceOrder} ("${item.prompt.slice(0, 40)}")`;
+
+    const parsedRubric =
+      typeof item.rubric === 'string'
+        ? (() => {
+            try {
+              return JSON.parse(item.rubric as string);
+            } catch {
+              return null;
+            }
+          })()
+        : item.rubric;
+
+    for (const fault of findQuestionShapeFaults({
+      type: item.type as QuestionType,
+      options: item.options as string[] | null,
+      correctAnswer: item.correctAnswer,
+      rubric: Array.isArray(parsedRubric) ? parsedRubric : null,
+    })) {
+      faults.push(`${label}: ${fault.message}`);
+    }
+
+    if (!questionsWithSkill.has(item.questionId)) {
+      faults.push(`${label} is not mapped to any skill, so it would produce no evidence.`);
+    }
+
+    // A listening question is only answerable if the learner can hear it.
+    if (item.type === QuestionType.LISTENING) {
+      if (!item.sourceMaterialId) {
+        faults.push(`${label} is a listening question with no source material to play.`);
+      } else {
+        const [material] = await db
+          .select({ id: schema.materials.id })
+          .from(schema.materials)
+          .where(eq(schema.materials.id, item.sourceMaterialId));
+
+        if (!material) {
+          faults.push(`${label} points at a source material that no longer exists.`);
+        } else {
+          const files = await db
+            .select({ mimeType: schema.materialFiles.mimeType })
+            .from(schema.materialFiles)
+            .where(eq(schema.materialFiles.materialId, item.sourceMaterialId));
+
+          if (!files.some((f) => f.mimeType.startsWith('audio/'))) {
+            faults.push(`${label} has a source material with no audio file attached.`);
+          }
+        }
+      }
+    }
+
+    if (!item.points || Number(item.points) <= 0) {
+      faults.push(`${label} is worth no points.`);
+    }
+  }
+
+  return faults;
+}
 const UpdateAssessmentSchema = z.object({
   title: z.string().min(3).optional(),
   description: z.string().optional(),
@@ -22,6 +145,7 @@ const UpdateAssessmentSchema = z.object({
   level: z.string().optional(),
   timeLimitMinutes: z.number().int().positive().optional(),
   questionIds: z.array(z.string().uuid()).optional(),
+  itemPoints: z.record(z.string().uuid(), z.number().positive().max(1000)).optional(),
 });
 
 export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
@@ -189,6 +313,19 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
       throw new BadRequestError('Cannot modify a question that is used in published or closed assessments');
     }
 
+    // The request is partial, so the rules apply to the question as it would
+    // stand after the edit, not to the fields that happen to be present.
+    const merged = {
+      type: (body.type ?? existing.type) as QuestionType,
+      options: (body.options ?? existing.options) as string[] | null,
+      correctAnswer: body.correctAnswer ?? existing.correctAnswer,
+      rubric: (body.rubric ?? existing.rubric) as unknown[] | null,
+    };
+    const shapeFaults = findQuestionShapeFaults(merged);
+    if (shapeFaults.length > 0) {
+      throw new BadRequestError(shapeFaults.map((f) => f.message).join(' '));
+    }
+
     const result = await db.transaction(async (tx) => {
       const { skills, ...qData } = body;
       const [updated] = await tx
@@ -235,15 +372,12 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
         .where(eq(schema.classEnrollments.learnerId, user.id));
       const classIds = studentClasses.map((c) => c.classId);
 
-      const conditions = [eq(schema.assignments.learnerId, user.id)];
-      if (classIds.length > 0) {
-        conditions.push(inArray(schema.assignments.classId, classIds));
-      }
+      const reaches = assignmentReachesLearnerSql(user.id, classIds);
 
       const assignments = await db
         .select({ assessmentId: schema.assignments.assessmentId })
         .from(schema.assignments)
-        .where(and(eq(schema.assignments.status, 'OPEN'), or(...conditions)));
+        .where(and(eq(schema.assignments.status, 'OPEN'), reaches));
 
       assignedAssessmentIds = new Set(assignments.map((a) => a.assessmentId));
       allAssessments = allAssessments.filter(
@@ -322,11 +456,6 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
         .where(eq(schema.classEnrollments.learnerId, user.id));
       const classIds = studentClasses.map((c) => c.classId);
 
-      const conditions = [eq(schema.assignments.learnerId, user.id)];
-      if (classIds.length > 0) {
-        conditions.push(inArray(schema.assignments.classId, classIds));
-      }
-
       const [assigned] = await db
         .select({ id: schema.assignments.id })
         .from(schema.assignments)
@@ -334,7 +463,7 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
           and(
             eq(schema.assignments.assessmentId, id),
             eq(schema.assignments.status, 'OPEN'),
-            or(...conditions)
+            assignmentReachesLearnerSql(user.id, classIds)
           )
         );
 
@@ -430,7 +559,9 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
       for (let i = 0; i < body.questionIds.length; i++) {
         const qId = body.questionIds[i];
         const q = questions.find((quest) => quest.id === qId);
-        let calculatedPoints = 1.0;
+        // A rubric decides its own total; anything else may be weighted by the
+        // teacher, and falls back to one point when they say nothing.
+        let calculatedPoints = body.itemPoints?.[qId] ?? 1.0;
 
         if (q && q.rubric) {
           try {
@@ -477,19 +608,27 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
 
     const [existing] = await db.select().from(schema.assessments).where(eq(schema.assessments.id, id));
     if (!existing) throw new NotFoundError('Assessment not found');
-    if (existing.status !== AssessmentStatus.DRAFT) {
+    if (existing.status !== AssessmentStatus.DRAFT && existing.status !== AssessmentStatus.READY) {
       throw new BadRequestError('Cannot modify an assessment that is not in draft status');
     }
 
     const result = await db.transaction(async (tx) => {
-      const { questionIds, ...updateFields } = body;
+      // itemPoints belongs to assessment_items, not to the assessment row, so
+      // it must not reach the SET clause below.
+      const { questionIds, itemPoints, ...updateFields } = body;
       const [updated] = await tx
         .update(schema.assessments)
-        .set({ ...updateFields, updatedAt: new Date() })
+        .set({
+          ...updateFields,
+          // An edit invalidates the readiness check, so the paper returns to
+          // the start of the lifecycle and must be checked again.
+          status: AssessmentStatus.DRAFT,
+          updatedAt: new Date(),
+        })
         .where(eq(schema.assessments.id, id))
         .returning();
 
-      if (questionIds && questionIds.length > 0 && existing.status === AssessmentStatus.DRAFT) {
+      if (questionIds && questionIds.length > 0) {
         await tx.delete(schema.assessmentItems).where(eq(schema.assessmentItems.assessmentId, id));
 
         const questions = await tx
@@ -500,7 +639,9 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
         for (let i = 0; i < questionIds.length; i++) {
           const qId = questionIds[i];
           const q = questions.find((quest) => quest.id === qId);
-          let calculatedPoints = 1.0;
+          // Same rule as create: the teacher may weight anything without a
+          // rubric, and a rubric decides its own total.
+          let calculatedPoints = body.itemPoints?.[qId] ?? 1.0;
 
           if (q && q.rubric) {
             try {
@@ -532,41 +673,63 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
     };
   });
 
-  // 9. Publish Assessment
+  // 8b. Mark Assessment Ready (DRAFT -> READY)
+  fastify.put('/:id/ready', { preHandler: [authenticate, requireRole([UserRole.TEACHER, UserRole.ADMIN])] }, async (request) => {
+    const { id } = request.params as { id: string };
+
+    const [existing] = await db.select().from(schema.assessments).where(eq(schema.assessments.id, id));
+    if (!existing) throw new NotFoundError('Assessment not found');
+    assertTransition(existing.status, AssessmentStatus.READY);
+
+    const faults = await findAssessmentFaults(id);
+    if (faults.length > 0) {
+      throw new BadRequestError(`This assessment is not ready: ${faults.join(' ')}`);
+    }
+
+    const [updated] = await db
+      .update(schema.assessments)
+      .set({ status: AssessmentStatus.READY, updatedAt: new Date() })
+      .where(eq(schema.assessments.id, id))
+      .returning();
+
+    await db.insert(schema.auditEvents).values({
+      actorId: request.user!.id,
+      actorRole: request.user!.role,
+      action: 'ASSESSMENT_READY',
+      entityType: 'ASSESSMENT',
+      entityId: id,
+    });
+
+    return {
+      ...updated,
+      createdAt: updated.createdAt.toISOString(),
+      updatedAt: updated.updatedAt.toISOString(),
+    };
+  });
+
+  // 8c. Readiness report: what stands between this draft and READY
+  fastify.get('/:id/readiness', { preHandler: [authenticate, requireRole([UserRole.TEACHER, UserRole.ADMIN])] }, async (request) => {
+    const { id } = request.params as { id: string };
+
+    const [existing] = await db.select().from(schema.assessments).where(eq(schema.assessments.id, id));
+    if (!existing) throw new NotFoundError('Assessment not found');
+
+    const faults = await findAssessmentFaults(id);
+    return { status: existing.status, ready: faults.length === 0, faults };
+  });
+
+  // 9. Publish Assessment (READY -> PUBLISHED)
   fastify.put('/:id/publish', { preHandler: [authenticate, requireRole([UserRole.TEACHER, UserRole.ADMIN])] }, async (request) => {
     const { id } = request.params as { id: string };
 
-    const items = await db.select().from(schema.assessmentItems).where(eq(schema.assessmentItems.assessmentId, id));
-    if (items.length === 0) {
-      throw new BadRequestError('Cannot publish an assessment with no questions');
-    }
+    const [existing] = await db.select().from(schema.assessments).where(eq(schema.assessments.id, id));
+    if (!existing) throw new NotFoundError('Assessment not found');
+    assertTransition(existing.status, AssessmentStatus.PUBLISHED);
 
-    const qIds = items.map((i) => i.questionId);
-    const questions = await db.select().from(schema.questions).where(inArray(schema.questions.id, qIds));
-
-    for (const q of questions) {
-      if (q.type === 'MCQ' && (!Array.isArray(q.options) || q.options.length < 2 || !q.correctAnswer)) {
-        throw new BadRequestError(`MCQ question "${q.prompt.substring(0, 20)}..." is incomplete. It must have at least 2 options and a correct answer.`);
-      }
-
-      if (q.type === 'LISTENING') {
-        if (!Array.isArray(q.options) || q.options.length < 2 || !q.correctAnswer) {
-          throw new BadRequestError(`LISTENING question "${q.prompt.substring(0, 20)}..." is incomplete. It must have at least 2 options and a correct answer.`);
-        }
-        if (!q.sourceMaterialId) {
-          throw new BadRequestError(`LISTENING question "${q.prompt.substring(0, 20)}..." must have a linked source material containing audio.`);
-        }
-        const [material] = await db.select().from(schema.materials).where(eq(schema.materials.id, q.sourceMaterialId));
-        if (!material) {
-          throw new BadRequestError(`LISTENING question "${q.prompt.substring(0, 20)}..." has an invalid linked source material.`);
-        }
-
-        const files = await db.select().from(schema.materialFiles).where(eq(schema.materialFiles.materialId, q.sourceMaterialId));
-        const hasAudio = files.some(f => f.mimeType.startsWith('audio/'));
-        if (!hasAudio) {
-          throw new BadRequestError(`LISTENING question "${q.prompt.substring(0, 20)}..." requires its linked source material to have an audio file.`);
-        }
-      }
+    // Checked again: the questions may have changed since READY was granted.
+    const faults = await findAssessmentFaults(id);
+    if (faults.length > 0) {
+      throw new BadRequestError(`This assessment can no longer be published: ${faults.join(' ')}`);
     }
 
     const [updated] = await db
@@ -574,8 +737,6 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
       .set({ status: AssessmentStatus.PUBLISHED, updatedAt: new Date() })
       .where(eq(schema.assessments.id, id))
       .returning();
-
-    if (!updated) throw new NotFoundError('Assessment not found');
 
     await db.insert(schema.auditEvents).values({
       actorId: request.user!.id,
@@ -592,21 +753,50 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
     };
   });
 
-  // 10. Close Assessment
+  // 10. Close Assessment (PUBLISHED -> CLOSED)
   fastify.put('/:id/close', { preHandler: [authenticate, requireRole([UserRole.TEACHER, UserRole.ADMIN])] }, async (request) => {
     const { id } = request.params as { id: string };
 
-    const [updated] = await db
-      .update(schema.assessments)
-      .set({ status: AssessmentStatus.CLOSED, updatedAt: new Date() })
-      .where(eq(schema.assessments.id, id))
-      .returning();
+    const [existing] = await db.select().from(schema.assessments).where(eq(schema.assessments.id, id));
+    if (!existing) throw new NotFoundError('Assessment not found');
+    assertTransition(existing.status, AssessmentStatus.CLOSED);
 
-    if (!updated) throw new NotFoundError('Assessment not found');
+    const result = await db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(schema.assessments)
+        .set({ status: AssessmentStatus.CLOSED, updatedAt: new Date() })
+        .where(eq(schema.assessments.id, id))
+        .returning();
+
+      // Closing the paper closes the ways into it. Without this the
+      // assignments stay OPEN and learners keep submitting after the close.
+      const closedAssignments = await tx
+        .update(schema.assignments)
+        .set({ status: 'CLOSED' })
+        .where(
+          and(
+            eq(schema.assignments.assessmentId, id),
+            sql`${schema.assignments.status} <> 'CLOSED'`
+          )
+        )
+        .returning({ id: schema.assignments.id });
+
+      await tx.insert(schema.auditEvents).values({
+        actorId: request.user!.id,
+        actorRole: request.user!.role,
+        action: 'ASSESSMENT_CLOSED',
+        entityType: 'ASSESSMENT',
+        entityId: id,
+        metadata: { assignmentsClosed: closedAssignments.length },
+      });
+
+      return updated;
+    });
+
     return {
-      ...updated,
-      createdAt: updated.createdAt.toISOString(),
-      updatedAt: updated.updatedAt.toISOString(),
+      ...result,
+      createdAt: result.createdAt.toISOString(),
+      updatedAt: result.updatedAt.toISOString(),
     };
   });
 
@@ -620,11 +810,12 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
 
     const [assessment] = await db.select().from(schema.assessments).where(eq(schema.assessments.id, id));
     if (!assessment) throw new NotFoundError('Assessment not found');
-    if (assessment.status === AssessmentStatus.DRAFT) {
-      throw new BadRequestError('Cannot assign a draft assessment. Please publish it first.');
-    }
-    if (assessment.status === AssessmentStatus.CLOSED) {
-      throw new BadRequestError('Cannot assign a closed assessment.');
+    if (assessment.status !== AssessmentStatus.PUBLISHED) {
+      throw new BadRequestError(
+        assessment.status === AssessmentStatus.CLOSED
+          ? 'Cannot assign a closed assessment.'
+          : 'Cannot assign an assessment that is not published yet. Please publish it first.'
+      );
     }
 
     if (body.classId) {
@@ -663,143 +854,167 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
       }
     }
 
+    // Naming learners means those learners, whether or not a class was named
+    // alongside them. A class on its own means the class.
+    const namedLearnerIds = Array.from(new Set(body.learnerIds ?? []));
+    const isIndividual = namedLearnerIds.length > 0;
+    if (!isIndividual && !body.classId) {
+      throw new BadRequestError('Name a class or at least one learner to assign to.');
+    }
+
+    const dueAt = body.dueAt ? new Date(body.dueAt) : null;
+
     const result = await db.transaction(async (tx) => {
-      let createdAssignments: any[] = [];
-      let targetLearnerIds: string[] = body.learnerIds || [];
+      /**
+       * Find or create the assignment for one recipient, and bring its
+       * deadline up to date.
+       *
+       * Re-assigning is how a teacher moves a deadline, so a second call with
+       * a new dueAt updates the existing row rather than being ignored. It
+       * never creates a second attempt: the learner keeps the work they have.
+       */
+      const upsertAssignment = async (classId: string | null, learnerId: string | null) => {
+        // Who this row is for, matched the same way the unique indexes are
+        // defined: a class-wide row has no learner, an individual row has no
+        // class.
+        const mine = and(
+          eq(schema.assignments.assessmentId, id),
+          eq(schema.assignments.status, 'OPEN'),
+          learnerId
+            ? eq(schema.assignments.learnerId, learnerId)
+            : and(
+                eq(schema.assignments.classId, classId!),
+                isNull(schema.assignments.learnerId)
+              )
+        );
 
-      if (body.classId) {
-        // Class-level assignment (single row)
-        let [assignment] = await tx
-          .select()
-          .from(schema.assignments)
-          .where(
-            and(
-              eq(schema.assignments.assessmentId, id),
-              eq(schema.assignments.classId, body.classId),
-              eq(schema.assignments.status, 'OPEN')
-            )
-          );
+        // Insert first and let the index settle the race. Selecting first and
+        // inserting after loses to a concurrent caller, which then fails on the
+        // unique index rather than sharing the row.
+        const [created] = await tx
+          .insert(schema.assignments)
+          .values({ assessmentId: id, classId, learnerId, dueAt, status: 'OPEN' })
+          .onConflictDoNothing()
+          .returning();
 
-        if (!assignment) {
-          await tx
-            .insert(schema.assignments)
-            .values({
-              assessmentId: id,
-              classId: body.classId,
-              learnerId: null,
-              dueAt: body.dueAt ? new Date(body.dueAt) : null,
-              status: 'OPEN',
-            })
-            .onConflictDoNothing();
+        if (created) return { assignment: created, created: true };
 
-          [assignment] = await tx
-            .select()
-            .from(schema.assignments)
+        const [found] = await tx.select().from(schema.assignments).where(mine);
+        if (!found) {
+          // The only rows that can block the insert are ones this predicate
+          // finds, so reaching here means the row was closed between the two
+          // statements. Reopening it is what assigning again means.
+          const [reopened] = await tx
+            .update(schema.assignments)
+            .set({ dueAt, status: 'OPEN' })
             .where(
               and(
                 eq(schema.assignments.assessmentId, id),
-                eq(schema.assignments.classId, body.classId),
-                eq(schema.assignments.status, 'OPEN')
+                learnerId
+                  ? eq(schema.assignments.learnerId, learnerId)
+                  : and(
+                      eq(schema.assignments.classId, classId!),
+                      isNull(schema.assignments.learnerId)
+                    )
               )
-            );
-        }
-
-        createdAssignments.push(assignment);
-
-        const enrollments = await tx
-          .select({ learnerId: schema.classEnrollments.learnerId })
-          .from(schema.classEnrollments)
-          .where(eq(schema.classEnrollments.classId, body.classId));
-        targetLearnerIds = Array.from(new Set([...targetLearnerIds, ...enrollments.map((e) => e.learnerId)]));
-      } else {
-        // Individual assignments
-        for (const learnerId of targetLearnerIds) {
-          let [assignment] = await tx
-            .select()
-            .from(schema.assignments)
-            .where(
-              and(
-                eq(schema.assignments.assessmentId, id),
-                eq(schema.assignments.learnerId, learnerId),
-                eq(schema.assignments.status, 'OPEN')
-              )
-            );
-
-          if (!assignment) {
-            await tx
-              .insert(schema.assignments)
-              .values({
-                assessmentId: id,
-                classId: null,
-                learnerId,
-                dueAt: body.dueAt ? new Date(body.dueAt) : null,
-                status: 'OPEN',
-              })
-              .onConflictDoNothing();
-
-            [assignment] = await tx
-              .select()
-              .from(schema.assignments)
-              .where(
-                and(
-                  eq(schema.assignments.assessmentId, id),
-                  eq(schema.assignments.learnerId, learnerId),
-                  eq(schema.assignments.status, 'OPEN')
-                )
-              );
-          }
-          createdAssignments.push(assignment);
-        }
-      }
-
-      // Automatically create STARTED submissions for each learner
-      for (const learnerId of targetLearnerIds) {
-        // Find which assignment to tie the submission to
-        const assignmentForLearner = body.classId
-          ? createdAssignments[0]
-          : createdAssignments.find(a => a.learnerId === learnerId);
-
-        if (!assignmentForLearner) continue;
-
-        let existingSub = await tx
-          .select({ id: schema.submissions.id })
-          .from(schema.submissions)
-          .where(
-            and(
-              eq(schema.submissions.assignmentId, assignmentForLearner.id),
-              eq(schema.submissions.learnerId, learnerId)
             )
-          );
+            .returning();
+          return { assignment: reopened, created: false };
+        }
 
-        if (existingSub.length === 0) {
-          await tx.insert(schema.submissions).values({
-            assignmentId: assignmentForLearner.id,
+        // Re-assigning is how a teacher moves a deadline, so a second call
+        // with a new dueAt updates the row rather than being ignored. It never
+        // creates a second attempt: the learner keeps the work they have.
+        if (body.dueAt !== undefined) {
+          const [refreshed] = await tx
+            .update(schema.assignments)
+            .set({ dueAt })
+            .where(eq(schema.assignments.id, found.id))
+            .returning();
+          return { assignment: refreshed, created: false };
+        }
+
+        return { assignment: found, created: false };
+      };
+
+      /** One attempt per learner, so a retry of this call changes nothing. */
+      const ensureSubmission = async (assignmentId: string, learnerId: string) => {
+        await tx
+          .insert(schema.submissions)
+          .values({
+            assignmentId,
             assessmentId: id,
             learnerId,
             status: 'STARTED',
             maxPossibleScore: 100,
-          }).onConflictDoNothing();
+          })
+          .onConflictDoNothing({
+            target: [schema.submissions.assignmentId, schema.submissions.learnerId],
+          });
+      };
+
+      const assignments: (typeof schema.assignments.$inferSelect)[] = [];
+      const recipients: string[] = [];
+
+      if (isIndividual) {
+        // One assignment each, and no class on the row: a class named here
+        // only scopes who may be picked. Storing it would collide with the
+        // unique index on (assessment_id, class_id) for a second learner in
+        // the same class.
+        for (const learnerId of namedLearnerIds) {
+          const { assignment } = await upsertAssignment(null, learnerId);
+          await ensureSubmission(assignment.id, learnerId);
+          assignments.push(assignment);
+          recipients.push(learnerId);
         }
+      } else {
+        const { assignment } = await upsertAssignment(body.classId!, null);
+        const enrollments = await tx
+          .select({ learnerId: schema.classEnrollments.learnerId })
+          .from(schema.classEnrollments)
+          .where(eq(schema.classEnrollments.classId, body.classId!));
+
+        for (const { learnerId } of enrollments) {
+          await ensureSubmission(assignment.id, learnerId);
+          recipients.push(learnerId);
+        }
+        assignments.push(assignment);
       }
 
-      for (const assign of createdAssignments) {
+      // One event per assignment, so a learner's trail names their own row
+      // rather than the first one in the batch.
+      for (const assignment of assignments) {
         await tx.insert(schema.auditEvents).values({
           actorId: request.user!.id,
           actorRole: request.user!.role,
           action: 'ASSESSMENT_ASSIGNED',
           entityType: 'ASSIGNMENT',
-          entityId: assign.id,
-          metadata: { classId: assign.classId, learnerId: assign.learnerId },
+          entityId: assignment.id,
+          metadata: {
+            classId: assignment.classId,
+            learnerId: assignment.learnerId,
+            scope: isIndividual ? 'LEARNERS' : 'CLASS',
+            learnersCount: recipients.length,
+            dueAt: dueAt ? dueAt.toISOString() : null,
+          },
         });
       }
 
-      return createdAssignments[0];
+      return { assignments, learnersAssigned: recipients.length };
     });
 
+    const serialize = (a: typeof schema.assignments.$inferSelect) => ({
+      ...a,
+      assignedAt: a.assignedAt.toISOString(),
+      dueAt: a.dueAt ? a.dueAt.toISOString() : null,
+    });
+
+    // The first assignment stays at the top level so existing callers, which
+    // only ever assign a whole class, see the shape they always have.
     return reply.status(201).send({
-      ...result,
-      assignedAt: result.assignedAt.toISOString(),
-      dueAt: result.dueAt ? result.dueAt.toISOString() : null,
+      ...serialize(result.assignments[0]),
+      assignments: result.assignments.map(serialize),
+      learnersAssigned: result.learnersAssigned,
     });
   });
 };

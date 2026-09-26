@@ -100,7 +100,11 @@ export const api = {
 
   // Taxonomy & Skills
   getSkills: (params?: any) => request<any>(`/taxonomy/skills${buildQueryString(params)}`),
-  getSkillTree: () => request<any[]>('/taxonomy/tree'),
+  getSkillTree: (params?: any) => request<any[]>(`/taxonomy/tree${buildQueryString(params)}`),
+  archiveSkill: (id: string) =>
+    request<any>(`/taxonomy/skills/${id}/archive`, { method: 'POST' }),
+  restoreSkill: (id: string) =>
+    request<any>(`/taxonomy/skills/${id}/restore`, { method: 'POST' }),
   createSkill: (data: any) =>
     request<any>('/taxonomy/skills', { method: 'POST', body: JSON.stringify(data) }),
   updateSkill: (id: string, data: any) =>
@@ -187,6 +191,12 @@ export const api = {
     request<any>('/assessments', { method: 'POST', body: JSON.stringify(data) }),
   updateAssessment: (id: string, data: any) =>
     request<any>(`/assessments/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  markAssessmentReady: (id: string) =>
+    request<any>(`/assessments/${id}/ready`, { method: 'PUT' }),
+  getAssessmentReadiness: (id: string) =>
+    request<{ status: string; ready: boolean; faults: string[] }>(
+      `/assessments/${id}/readiness`
+    ),
   publishAssessment: (id: string) =>
     request<any>(`/assessments/${id}/publish`, { method: 'PUT' }),
   closeAssessment: (id: string) =>

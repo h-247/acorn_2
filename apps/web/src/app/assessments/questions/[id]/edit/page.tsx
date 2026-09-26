@@ -28,6 +28,14 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
   const [estimatedMinutes, setEstimatedMinutes] = useState(5);
   const [status, setStatus] = useState('APPROVED');
   const [usageCount, setUsageCount] = useState(0);
+  // Which material this question was written from. The column and the
+  // contract both had room for it; only the form never asked, so a question
+  // authored by hand broke the Material -> Question -> Evidence chain that
+  // the evidence drill-down and the learner journey are read from.
+  const [sourceMaterialId, setSourceMaterialId] = useState('');
+
+  // MCQ specific
+  const [availableMaterials, setAvailableMaterials] = useState<any[]>([]);
 
   // MCQ specific
   const [options, setOptions] = useState<string[]>([
@@ -48,8 +56,6 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
   const [wordCountMax, setWordCountMax] = useState(250);
   const [prepTimeSeconds, setPrepTimeSeconds] = useState(60);
   const [durationSeconds, setDurationSeconds] = useState(120);
-  const [sourceMaterialId, setSourceMaterialId] = useState('');
-  const [availableMaterials, setAvailableMaterials] = useState<any[]>([]);
   const [rubricCriteria, setRubricCriteria] = useState(
     JSON.stringify([
       { criteria: 'Task Achievement', maxScore: 25 },
@@ -71,13 +77,19 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
     setErrorMessage(null);
     try {
       const skillsPromise = api.getSkills();
-      const materialsPromise = api.getMaterials();
+      // The picker is optional, so a failed fetch must not take the form down
+      // with it, and the endpoint may answer with a page rather than an array.
+      const materialsPromise = api.getMaterials().catch(() => []);
       const questionPromise = !isNew ? api.getQuestion(params.id) : Promise.resolve(null);
 
-      const [skills, materials, q] = await Promise.all([skillsPromise, materialsPromise, questionPromise]);
+      const [skills, mats, q] = await Promise.all([
+        skillsPromise,
+        materialsPromise,
+        questionPromise,
+      ]);
 
       setAvailableSkills(skills || []);
-      setAvailableMaterials(materials || []);
+      setAvailableMaterials(Array.isArray(mats) ? mats : (mats as any)?.items || []);
       if (skills && skills.length > 0) {
         setSelectedSkillId((prev) => prev || skills[0].id);
       }
@@ -96,6 +108,7 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
         if (q.options) setOptions(q.options);
         if (q.correctAnswer) setCorrectAnswer(q.correctAnswer);
         if (q.explanation) setExplanation(q.explanation);
+        setSourceMaterialId(q.sourceMaterialId || '');
         if (q.rubric) {
           if (typeof q.rubric === 'string') setRubricCriteria(q.rubric);
           else setRubricCriteria(JSON.stringify(q.rubric, null, 2));

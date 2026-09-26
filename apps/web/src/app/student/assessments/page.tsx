@@ -105,8 +105,12 @@ export default function StudentAssessmentsListPage() {
                       >
                         <div className="space-y-1">
                           <div className="flex flex-wrap items-center gap-2 mb-1">
-                            <Badge variant="primary">
-                              {sub.status === 'IN_PROGRESS' ? 'In Progress' : 'Ready to Start'}
+                            <Badge variant={sub.isClosed ? 'default' : 'primary'}>
+                              {sub.isClosed
+                                ? 'Closed'
+                                : sub.status === 'IN_PROGRESS'
+                                  ? 'In Progress'
+                                  : 'Ready to Start'}
                             </Badge>
                             {sub.learnerLevel && (
                               <span className="text-xs text-[#656C79] font-medium">
@@ -137,15 +141,25 @@ export default function StudentAssessmentsListPage() {
                             {sub.assessmentTitle || 'Assessment Checkpoint'}
                           </h3>
                           <p className="text-xs text-[#656C79]">
-                            Assigned checkpoint • Autosave enabled • Complete all questions to submit
+                            {sub.isClosed
+                              ? 'Your teacher closed this assessment. It no longer accepts answers.'
+                              : 'Assigned checkpoint • Autosave enabled • Complete all questions to submit'}
                           </p>
                         </div>
 
-                        <a href={`/student/assessments/${sub.id}`}>
-                          <Button variant="primary" size="md">
-                            {sub.status === 'IN_PROGRESS' ? 'Resume Player ›' : 'Open Player ›'}
+                        {/* A closed paper refuses autosave and submit, so offering
+                            the player would only lead to an error mid-attempt. */}
+                        {sub.isClosed ? (
+                          <Button variant="outline" size="md" disabled>
+                            Closed
                           </Button>
-                        </a>
+                        ) : (
+                          <a href={`/student/assessments/${sub.id}`}>
+                            <Button variant="primary" size="md">
+                              {sub.status === 'IN_PROGRESS' ? 'Resume Player ›' : 'Open Player ›'}
+                            </Button>
+                          </a>
+                        )}
                       </Card>
                     );
                   })}

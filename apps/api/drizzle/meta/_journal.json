@@ -54,12 +54,40 @@
     {
       "idx": 7,
       "version": "7",
+      "when": 1790314820965,
+      "tag": "0007_skill_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790314821965,
+      "tag": "0008_assignment_targets",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790314822965,
+      "tag": "0009_nomatch_candidate",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790314823965,
+      "tag": "0010_align_assignment_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
       "when": 1790332349202,
       "tag": "0007_marvelous_mulholland_black",
       "breakpoints": true
     },
     {
-      "idx": 8,
+      "idx": 12,
       "version": "7",
       "when": 1790332535924,
       "tag": "0008_wakeful_molten_man",

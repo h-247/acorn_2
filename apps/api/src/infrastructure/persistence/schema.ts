@@ -1,4 +1,5 @@
 import { pgTable, text, timestamp, integer, boolean, real, jsonb, uuid, uniqueIndex, index, check } from 'drizzle-orm/pg-core';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 export const users = pgTable('users', {
@@ -55,12 +56,20 @@ export const skills = pgTable('skills', {
   code: text('code').notNull().unique(),
   name: text('name').notNull(),
   area: text('area').notNull(),
-  parentId: uuid('parent_id'),
+  // Self reference, so the database refuses a parent that does not exist. The
+  // return type is annotated because the table is still being defined here.
+  parentId: uuid('parent_id').references((): AnyPgColumn => skills.id, { onDelete: 'set null' }),
   level: text('level'),
   description: text('description'),
+  // ARCHIVED means "stop offering this when tagging new work". Evidence already
+  // recorded against the skill stays valid and keeps counting, which is why a
+  // skill in use is retired rather than deleted.
+  status: text('status').default('ACTIVE').notNull(),
 }, (table) => ({
   areaIdx: index('skills_area_idx').on(table.area),
   parentIdx: index('skills_parent_idx').on(table.parentId),
+  statusIdx: index('skills_status_idx').on(table.status),
+  statusCheck: check('skills_status_check', sql`status IN ('ACTIVE', 'ARCHIVED')`),
 }));
 
 export const materials = pgTable('materials', {
@@ -203,8 +212,15 @@ export const assignments = pgTable('assignments', {
 }, (table) => ({
   classIdx: index('assignments_class_idx').on(table.classId),
   learnerIdx: index('assignments_learner_idx').on(table.learnerId),
-  uniqueOpenClass: uniqueIndex('assignments_open_class_uidx').on(table.assessmentId, table.classId).where(sql`status = 'OPEN'`),
-  uniqueOpenLearner: uniqueIndex('assignments_open_learner_uidx').on(table.assessmentId, table.learnerId).where(sql`status = 'OPEN'`),
+  assessmentIdx: index('assignments_assessment_idx').on(table.assessmentId),
+  // An assignment names a class or one learner, never both audiences at once.
+  // Scoped to OPEN so a closed assignment does not block a fresh one.
+  uniqueOpenClass: uniqueIndex('assignments_open_class_uidx')
+    .on(table.assessmentId, table.classId)
+    .where(sql`status = 'OPEN'`),
+  uniqueOpenLearner: uniqueIndex('assignments_open_learner_uidx')
+    .on(table.assessmentId, table.learnerId)
+    .where(sql`status = 'OPEN'`),
 }));
 
 export const submissions = pgTable('submissions', {
@@ -230,7 +246,12 @@ export const submissions = pgTable('submissions', {
 }, (table) => ({
   learnerIdx: index('submissions_learner_idx').on(table.learnerId),
   assignmentIdx: index('submissions_assignment_idx').on(table.assignmentId),
-  statusIdx: index('submissions_status_idx').on(table.status), uniqueAssignmentLearner: uniqueIndex('submissions_assignment_learner_uidx').on(table.assignmentId, table.learnerId),
+  statusIdx: index('submissions_status_idx').on(table.status),
+  // One attempt per learner per assignment, so assigning twice is a no-op.
+  uniqueAssignmentLearner: uniqueIndex('submissions_assignment_learner_uidx').on(
+    table.assignmentId,
+    table.learnerId
+  ),
 }));
 
 
@@ -323,7 +344,8 @@ export const recommendations = pgTable('recommendations', {
 export const recommendationCandidates = pgTable('recommendation_candidates', {
   id: uuid('id').primaryKey().defaultRandom(),
   recommendationId: uuid('recommendation_id').references(() => recommendations.id).notNull(),
-  materialId: uuid('material_id').references(() => materials.id).notNull(),
+  /** Null on a NO_MATCH card: there is nothing in the library to point at. */
+  materialId: uuid('material_id').references(() => materials.id),
   action: text('action').notNull(),
   matchReason: text('match_reason').notNull(),
 }, (table) => ({
