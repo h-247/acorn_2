@@ -79,6 +79,11 @@ describe('Assessment instructions reach the learner', () => {
 
     await app.inject({
       method: 'PUT',
+      url: `/api/assessments/${assessment.id}/ready`,
+      headers: { authorization: `Bearer ${teacherToken}` },
+    });
+    await app.inject({
+      method: 'PUT',
       url: `/api/assessments/${assessment.id}/publish`,
       headers: { authorization: `Bearer ${teacherToken}` },
     });

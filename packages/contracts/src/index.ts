@@ -252,15 +252,58 @@ export const CreateQuestionRequestSchemaBase = z.object({
   sourceMaterialId: z.string().uuid().optional(),
 });
 
-export const CreateQuestionRequestSchema = CreateQuestionRequestSchemaBase.superRefine((data, ctx) => {
-  if (data.type === QuestionType.WRITING || data.type === QuestionType.SPEAKING) {
-    if (!data.rubric || data.rubric.length === 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+/** What a question of each type must carry before anyone can answer it. */
+export interface QuestionShape {
+  type: QuestionType;
+  options?: string[] | null;
+  correctAnswer?: string | null;
+  rubric?: unknown[] | null;
+}
+
+/**
+ * Faults that make a question unanswerable or unmarkable.
+ *
+ * Returned as `{ path, message }` so the same rule can drive a Zod issue on
+ * create, a merged re-check on update, and the readiness check a paper runs
+ * before it may be published.
+ */
+export function findQuestionShapeFaults(q: QuestionShape): Array<{ path: string; message: string }> {
+  const faults: Array<{ path: string; message: string }> = [];
+  const key = typeof q.correctAnswer === 'string' ? q.correctAnswer.trim() : '';
+  const options = Array.isArray(q.options)
+    ? q.options.map((o) => (typeof o === 'string' ? o.trim() : '')).filter(Boolean)
+    : [];
+
+  if (q.type === QuestionType.MCQ) {
+    if (options.length < 2) {
+      faults.push({ path: 'options', message: 'A multiple-choice question needs at least two options.' });
+    }
+    if (!key) {
+      faults.push({ path: 'correctAnswer', message: 'A multiple-choice question needs an answer key.' });
+    } else if (options.length > 0 && !options.includes(key)) {
+      faults.push({ path: 'correctAnswer', message: 'The answer key must be one of the options.' });
+    }
+  }
+
+  if (q.type === QuestionType.SHORT_ANSWER && !key) {
+    faults.push({ path: 'correctAnswer', message: 'A short-answer question needs an answer key to mark against.' });
+  }
+
+  if (q.type === QuestionType.WRITING || q.type === QuestionType.SPEAKING) {
+    if (!Array.isArray(q.rubric) || q.rubric.length === 0) {
+      faults.push({
+        path: 'rubric',
         message: 'Rubric is required and cannot be empty for WRITING and SPEAKING questions.',
-        path: ['rubric'],
       });
     }
+  }
+
+  return faults;
+}
+
+export const CreateQuestionRequestSchema = CreateQuestionRequestSchemaBase.superRefine((data, ctx) => {
+  for (const fault of findQuestionShapeFaults(data)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: fault.message, path: [fault.path] });
   }
 });
 export type CreateQuestionRequest = z.infer<typeof CreateQuestionRequestSchema>;

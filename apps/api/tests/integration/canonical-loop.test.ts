@@ -75,7 +75,15 @@ describe('Canonical Loop Integration Test', () => {
     const assessment = JSON.parse(createAssessRes.body);
     expect(assessment.id).toBeDefined();
 
-    // 5. Publish Assessment
+    // 5. Mark ready, then publish: DRAFT -> READY -> PUBLISHED
+    const readyRes = await app.inject({
+      method: 'PUT',
+      url: `/api/assessments/${assessment.id}/ready`,
+      headers: { authorization: `Bearer ${teacherToken}` },
+    });
+    expect(readyRes.statusCode).toBe(200);
+    expect(JSON.parse(readyRes.body).status).toBe('READY');
+
     const publishRes = await app.inject({
       method: 'PUT',
       url: `/api/assessments/${assessment.id}/publish`,

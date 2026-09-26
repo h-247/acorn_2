@@ -9,12 +9,108 @@ import {
   CreateAssessmentRequestSchema,
   AssignAssessmentRequestSchema,
   AssessmentStatus,
+  QuestionType,
   UserRole,
+  findQuestionShapeFaults,
 } from '@acorn/contracts';
 import { NotFoundError, BadRequestError, ForbiddenError } from '../../shared/errors.js';
 import { z } from 'zod';
 
 const UpdateQuestionSchema = CreateQuestionRequestSchemaBase.partial();
+
+/**
+ * The lifecycle from `docs/canonical/06-state-workflow.md`.
+ *
+ * READY is the gate: a paper is checked once, on the way in, and only a
+ * checked paper can be published. Editing a READY paper drops it back to
+ * DRAFT, so the check can never be bypassed by editing after passing it.
+ */
+const ALLOWED_TRANSITIONS: Record<string, string[]> = {
+  [AssessmentStatus.DRAFT]: [AssessmentStatus.READY],
+  [AssessmentStatus.READY]: [AssessmentStatus.DRAFT, AssessmentStatus.PUBLISHED],
+  [AssessmentStatus.PUBLISHED]: [AssessmentStatus.CLOSED],
+  [AssessmentStatus.CLOSED]: [],
+};
+
+function assertTransition(from: string, to: string): void {
+  if (from === to) {
+    throw new BadRequestError(`This assessment is already ${to}.`);
+  }
+  if (!(ALLOWED_TRANSITIONS[from] || []).includes(to)) {
+    throw new BadRequestError(`An assessment cannot go from ${from} to ${to}.`);
+  }
+}
+
+/**
+ * Everything that would make a paper unusable once learners sit it.
+ *
+ * Checked before READY and again before PUBLISHED: the second pass costs one
+ * query and protects against a paper whose questions were changed underneath
+ * it between the two steps.
+ */
+async function findAssessmentFaults(assessmentId: string): Promise<string[]> {
+  const faults: string[] = [];
+
+  const items = await db
+    .select({
+      questionId: schema.assessmentItems.questionId,
+      sequenceOrder: schema.assessmentItems.sequenceOrder,
+      points: schema.assessmentItems.points,
+      type: schema.questions.type,
+      prompt: schema.questions.prompt,
+      options: schema.questions.options,
+      correctAnswer: schema.questions.correctAnswer,
+      rubric: schema.questions.rubric,
+    })
+    .from(schema.assessmentItems)
+    .innerJoin(schema.questions, eq(schema.questions.id, schema.assessmentItems.questionId))
+    .where(eq(schema.assessmentItems.assessmentId, assessmentId))
+    .orderBy(schema.assessmentItems.sequenceOrder);
+
+  if (items.length === 0) {
+    return ['The assessment has no questions.'];
+  }
+
+  const skillRows = await db
+    .select({ questionId: schema.questionSkills.questionId })
+    .from(schema.questionSkills)
+    .where(inArray(schema.questionSkills.questionId, items.map((i) => i.questionId)));
+  const questionsWithSkill = new Set(skillRows.map((r) => r.questionId));
+
+  for (const item of items) {
+    const label = `Question ${item.sequenceOrder} ("${item.prompt.slice(0, 40)}")`;
+
+    const parsedRubric =
+      typeof item.rubric === 'string'
+        ? (() => {
+            try {
+              return JSON.parse(item.rubric as string);
+            } catch {
+              return null;
+            }
+          })()
+        : item.rubric;
+
+    for (const fault of findQuestionShapeFaults({
+      type: item.type as QuestionType,
+      options: item.options as string[] | null,
+      correctAnswer: item.correctAnswer,
+      rubric: Array.isArray(parsedRubric) ? parsedRubric : null,
+    })) {
+      faults.push(`${label}: ${fault.message}`);
+    }
+
+    if (!questionsWithSkill.has(item.questionId)) {
+      faults.push(`${label} is not mapped to any skill, so it would produce no evidence.`);
+    }
+
+    if (!item.points || Number(item.points) <= 0) {
+      faults.push(`${label} is worth no points.`);
+    }
+  }
+
+  return faults;
+}
 const UpdateAssessmentSchema = z.object({
   title: z.string().min(3).optional(),
   description: z.string().optional(),
@@ -188,6 +284,19 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
 
     if (usedInAssessments.length > 0) {
       throw new BadRequestError('Cannot modify a question that is used in published or closed assessments');
+    }
+
+    // The request is partial, so the rules apply to the question as it would
+    // stand after the edit, not to the fields that happen to be present.
+    const merged = {
+      type: (body.type ?? existing.type) as QuestionType,
+      options: (body.options ?? existing.options) as string[] | null,
+      correctAnswer: body.correctAnswer ?? existing.correctAnswer,
+      rubric: (body.rubric ?? existing.rubric) as unknown[] | null,
+    };
+    const shapeFaults = findQuestionShapeFaults(merged);
+    if (shapeFaults.length > 0) {
+      throw new BadRequestError(shapeFaults.map((f) => f.message).join(' '));
     }
 
     const result = await db.transaction(async (tx) => {
@@ -480,7 +589,7 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
 
     const [existing] = await db.select().from(schema.assessments).where(eq(schema.assessments.id, id));
     if (!existing) throw new NotFoundError('Assessment not found');
-    if (existing.status !== AssessmentStatus.DRAFT) {
+    if (existing.status !== AssessmentStatus.DRAFT && existing.status !== AssessmentStatus.READY) {
       throw new BadRequestError('Cannot modify an assessment that is not in draft status');
     }
 
@@ -490,11 +599,17 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
       const { questionIds, itemPoints, ...updateFields } = body;
       const [updated] = await tx
         .update(schema.assessments)
-        .set({ ...updateFields, updatedAt: new Date() })
+        .set({
+          ...updateFields,
+          // An edit invalidates the readiness check, so the paper returns to
+          // the start of the lifecycle and must be checked again.
+          status: AssessmentStatus.DRAFT,
+          updatedAt: new Date(),
+        })
         .where(eq(schema.assessments.id, id))
         .returning();
 
-      if (questionIds && questionIds.length > 0 && existing.status === AssessmentStatus.DRAFT) {
+      if (questionIds && questionIds.length > 0) {
         await tx.delete(schema.assessmentItems).where(eq(schema.assessmentItems.assessmentId, id));
 
         const questions = await tx
@@ -539,17 +654,70 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
     };
   });
 
-  // 9. Publish Assessment
+  // 8b. Mark Assessment Ready (DRAFT -> READY)
+  fastify.put('/:id/ready', { preHandler: [authenticate, requireRole([UserRole.TEACHER, UserRole.ADMIN])] }, async (request) => {
+    const { id } = request.params as { id: string };
+
+    const [existing] = await db.select().from(schema.assessments).where(eq(schema.assessments.id, id));
+    if (!existing) throw new NotFoundError('Assessment not found');
+    assertTransition(existing.status, AssessmentStatus.READY);
+
+    const faults = await findAssessmentFaults(id);
+    if (faults.length > 0) {
+      throw new BadRequestError(`This assessment is not ready: ${faults.join(' ')}`);
+    }
+
+    const [updated] = await db
+      .update(schema.assessments)
+      .set({ status: AssessmentStatus.READY, updatedAt: new Date() })
+      .where(eq(schema.assessments.id, id))
+      .returning();
+
+    await db.insert(schema.auditEvents).values({
+      actorId: request.user!.id,
+      actorRole: request.user!.role,
+      action: 'ASSESSMENT_READY',
+      entityType: 'ASSESSMENT',
+      entityId: id,
+    });
+
+    return {
+      ...updated,
+      createdAt: updated.createdAt.toISOString(),
+      updatedAt: updated.updatedAt.toISOString(),
+    };
+  });
+
+  // 8c. Readiness report: what stands between this draft and READY
+  fastify.get('/:id/readiness', { preHandler: [authenticate, requireRole([UserRole.TEACHER, UserRole.ADMIN])] }, async (request) => {
+    const { id } = request.params as { id: string };
+
+    const [existing] = await db.select().from(schema.assessments).where(eq(schema.assessments.id, id));
+    if (!existing) throw new NotFoundError('Assessment not found');
+
+    const faults = await findAssessmentFaults(id);
+    return { status: existing.status, ready: faults.length === 0, faults };
+  });
+
+  // 9. Publish Assessment (READY -> PUBLISHED)
   fastify.put('/:id/publish', { preHandler: [authenticate, requireRole([UserRole.TEACHER, UserRole.ADMIN])] }, async (request) => {
     const { id } = request.params as { id: string };
+
+    const [existing] = await db.select().from(schema.assessments).where(eq(schema.assessments.id, id));
+    if (!existing) throw new NotFoundError('Assessment not found');
+    assertTransition(existing.status, AssessmentStatus.PUBLISHED);
+
+    // Checked again: the questions may have changed since READY was granted.
+    const faults = await findAssessmentFaults(id);
+    if (faults.length > 0) {
+      throw new BadRequestError(`This assessment can no longer be published: ${faults.join(' ')}`);
+    }
 
     const [updated] = await db
       .update(schema.assessments)
       .set({ status: AssessmentStatus.PUBLISHED, updatedAt: new Date() })
       .where(eq(schema.assessments.id, id))
       .returning();
-
-    if (!updated) throw new NotFoundError('Assessment not found');
 
     await db.insert(schema.auditEvents).values({
       actorId: request.user!.id,
@@ -566,21 +734,50 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
     };
   });
 
-  // 10. Close Assessment
+  // 10. Close Assessment (PUBLISHED -> CLOSED)
   fastify.put('/:id/close', { preHandler: [authenticate, requireRole([UserRole.TEACHER, UserRole.ADMIN])] }, async (request) => {
     const { id } = request.params as { id: string };
 
-    const [updated] = await db
-      .update(schema.assessments)
-      .set({ status: AssessmentStatus.CLOSED, updatedAt: new Date() })
-      .where(eq(schema.assessments.id, id))
-      .returning();
+    const [existing] = await db.select().from(schema.assessments).where(eq(schema.assessments.id, id));
+    if (!existing) throw new NotFoundError('Assessment not found');
+    assertTransition(existing.status, AssessmentStatus.CLOSED);
 
-    if (!updated) throw new NotFoundError('Assessment not found');
+    const result = await db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(schema.assessments)
+        .set({ status: AssessmentStatus.CLOSED, updatedAt: new Date() })
+        .where(eq(schema.assessments.id, id))
+        .returning();
+
+      // Closing the paper closes the ways into it. Without this the
+      // assignments stay OPEN and learners keep submitting after the close.
+      const closedAssignments = await tx
+        .update(schema.assignments)
+        .set({ status: 'CLOSED' })
+        .where(
+          and(
+            eq(schema.assignments.assessmentId, id),
+            sql`${schema.assignments.status} <> 'CLOSED'`
+          )
+        )
+        .returning({ id: schema.assignments.id });
+
+      await tx.insert(schema.auditEvents).values({
+        actorId: request.user!.id,
+        actorRole: request.user!.role,
+        action: 'ASSESSMENT_CLOSED',
+        entityType: 'ASSESSMENT',
+        entityId: id,
+        metadata: { assignmentsClosed: closedAssignments.length },
+      });
+
+      return updated;
+    });
+
     return {
-      ...updated,
-      createdAt: updated.createdAt.toISOString(),
-      updatedAt: updated.updatedAt.toISOString(),
+      ...result,
+      createdAt: result.createdAt.toISOString(),
+      updatedAt: result.updatedAt.toISOString(),
     };
   });
 
@@ -594,11 +791,12 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
 
     const [assessment] = await db.select().from(schema.assessments).where(eq(schema.assessments.id, id));
     if (!assessment) throw new NotFoundError('Assessment not found');
-    if (assessment.status === AssessmentStatus.DRAFT) {
-      throw new BadRequestError('Cannot assign a draft assessment. Please publish it first.');
-    }
-    if (assessment.status === AssessmentStatus.CLOSED) {
-      throw new BadRequestError('Cannot assign a closed assessment.');
+    if (assessment.status !== AssessmentStatus.PUBLISHED) {
+      throw new BadRequestError(
+        assessment.status === AssessmentStatus.CLOSED
+          ? 'Cannot assign a closed assessment.'
+          : 'Cannot assign an assessment that is not published yet. Please publish it first.'
+      );
     }
 
     if (body.classId) {

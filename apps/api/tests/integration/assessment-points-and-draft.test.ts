@@ -151,6 +151,11 @@ describe('Assessment points and draft editing', () => {
 
     await app.inject({
       method: 'PUT',
+      url: `/api/assessments/${created.id}/ready`,
+      headers: auth(),
+    });
+    await app.inject({
+      method: 'PUT',
       url: `/api/assessments/${created.id}/publish`,
       headers: auth(),
     });
