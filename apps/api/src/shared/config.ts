@@ -42,6 +42,11 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET || 'acorn_super_secret_jwt_key_for_dev_123',
   databaseUrl: process.env.DATABASE_URL || 'postgresql://acorn:acorn_dev_only@localhost:5435/acorn',
   recentEvidenceCount: parseInt(process.env.RECENT_EVIDENCE_COUNT || '20', 10),
+  // The score at or above which a skill counts as met. A starting parameter
+  // to be tuned from real data, not an academic constant - the same standing
+  // as recent-N, and the number a recommendation is measured against before
+  // it may call anything "below target".
+  masteryTarget: parseFloat(process.env.MASTERY_TARGET || '0.8'),
   webOrigin: (process.env.WEB_ORIGIN || 'http://localhost:3000').replace(/\/+$/, ''),
   objectStorage: {
     provider: process.env.OBJECT_STORAGE_PROVIDER || 'seaweedfs',

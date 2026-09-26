@@ -17,6 +17,7 @@ import {
   MaterialStatus,
 } from '@acorn/contracts';
 import { NotFoundError, ForbiddenError, BadRequestError } from '../../shared/errors.js';
+import { config } from '../../shared/config.js';
 import { computeSkillState } from '../learner-state/learner-state.service.js';
 
 export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
@@ -108,35 +109,49 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
       // 2. Fetch all skills
       const allSkills = await db.select().from(schema.skills).orderBy(asc(schema.skills.code));
 
-      // Determine the learner's target skill needing practice:
-      // Lowest scoring skill with evidence, or if no evidence, the first skill
-      let targetSkill = allSkills[0];
-      let lowestScore = Infinity;
-      let targetEvidenceCount = 0;
-      let targetEvidenceIds: string[] = [];
-      let targetState = computeSkillState([]);
+      // Pick a skill to work on, and record which of three reasons it was
+      // picked for - because the sentence the teacher reads has to match it.
+      //
+      // This used to take the lowest-scoring skill with any evidence at all and
+      // then write "lower than target mastery" whatever the score was, so a
+      // learner sitting at 100% was told they were behind. A recommendation that
+      // misreports its own evidence undermines the one thing it is for.
+      const masteryTarget = config.masteryTarget;
 
-      for (const skill of allSkills) {
+      const scored = allSkills.map((skill) => {
         const evs = learnerEvidence.filter((e) => e.skillId === skill.id && !e.isSuperseded);
-        if (evs.length > 0) {
-          const st = computeSkillState(evs);
-          if (st.score !== null && st.score < lowestScore) {
-            lowestScore = st.score;
-            targetSkill = skill;
-            targetEvidenceCount = evs.length;
-            targetEvidenceIds = evs.map((e) => e.id);
-            targetState = st;
-          }
-        }
+        return { skill, evs, state: computeSkillState(evs) };
+      });
+
+      const measured = scored.filter((s) => s.evs.length > 0 && s.state.score !== null);
+      const belowTarget = measured
+        .filter((s) => (s.state.score as number) < masteryTarget)
+        .sort((a, b) => (a.state.score as number) - (b.state.score as number));
+      const untested = scored.filter((s) => s.evs.length === 0);
+
+      let chosen = belowTarget[0];
+      let basis: 'BELOW_TARGET' | 'NO_DATA' | 'CONSOLIDATION' = 'BELOW_TARGET';
+
+      if (!chosen) {
+        // Everything measured meets the target. An untested skill is the real
+        // gap now - not weakness, just something nobody has looked at yet.
+        chosen = untested[0];
+        basis = 'NO_DATA';
       }
 
-      // If no skills had evidence, target the first skill
-      if (lowestScore === Infinity && allSkills.length > 0) {
-        targetSkill = allSkills[0];
-        targetEvidenceCount = 0;
-        targetEvidenceIds = [];
-        targetState = computeSkillState([]);
+      if (!chosen) {
+        // Measured everywhere and meeting target everywhere. Still worth
+        // suggesting something, but as consolidation, not remediation.
+        chosen = [...measured].sort(
+          (a, b) => (a.state.score as number) - (b.state.score as number)
+        )[0];
+        basis = 'CONSOLIDATION';
       }
+
+      const targetSkill = chosen?.skill ?? allSkills[0];
+      const targetEvidenceCount = chosen?.evs.length ?? 0;
+      const targetEvidenceIds = chosen?.evs.map((e) => e.id) ?? [];
+      const targetState = chosen?.state ?? computeSkillState([]);
 
       // 3. Find candidate materials from PostgreSQL
       // G05: Materials are approved after review (APPROVED status).
@@ -157,6 +172,23 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
           .where(inArray(schema.classMaterials.classId, learnerClassIds));
         releasedMaterialIds = new Set(classMaterials.map((cm) => cm.materialId));
       }
+
+      // Reading the level off the skill described the taxonomy entry, not the
+      // learner - and every seeded skill carries B1, so the figure came out the
+      // same for everybody whatever class they were in.
+      const learnerClassRow = learnerClassIds.length
+        ? await db
+            .select({ classLevel: schema.classes.level, courseLevel: schema.courses.level })
+            .from(schema.classes)
+            .leftJoin(schema.courses, eq(schema.courses.id, schema.classes.courseId))
+            .where(inArray(schema.classes.id, learnerClassIds))
+            .limit(1)
+        : [];
+
+      const learnerLevel = (learnerClassRow[0]?.classLevel ||
+        learnerClassRow[0]?.courseLevel ||
+        targetSkill.level ||
+        CEFRLevel.B1) as CEFRLevel;
 
       const allMaterialsQuery = await db
         .select()
@@ -205,12 +237,25 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
       const recId = randomUUID();
       const now = new Date();
 
+      const pct = targetState.scorePercentage;
+      const targetPct = Math.round(masteryTarget * 100);
+
+      const openingLine =
+        basis === 'BELOW_TARGET'
+          ? `${targetSkill.name} is at ${pct}%, below the ${targetPct}% target.`
+          : basis === 'NO_DATA'
+            ? `No evidence recorded for ${targetSkill.name} yet — practice here to find out where the learner stands.`
+            : `${targetSkill.name} already meets the ${targetPct}% target at ${pct}%; suggested for consolidation rather than remediation.`;
+
       const rationale = {
+        // The basis is kept alongside the sentence so a reader can check the two
+        // agree, and so a later change to the wording cannot drift from the rule
+        // that produced it.
+        basis,
+        masteryTarget,
         texts: [
-          targetEvidenceCount > 0
-            ? `Performance in ${targetSkill.name} is lower than target mastery.`
-            : `Foundational practice in ${targetSkill.name} to establish baseline evidence.`,
-          `Aligned with CEFR ${targetSkill.level || 'B1'} curriculum objectives.`,
+          openingLine,
+          `Aligned with CEFR ${learnerLevel} curriculum objectives.`,
           `Grounded in ${targetEvidenceCount} recorded learning evidence observation(s).`,
         ],
         grounding: {
@@ -221,6 +266,8 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
           targetSkillName: targetSkill.name,
           score: targetState.score,
           confidence: targetState.confidence,
+          masteryTarget,
+          basis,
         }
       };
 
@@ -231,8 +278,15 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
             id: recId,
             learnerId,
             targetSkillId: targetSkill.id,
-            targetLevel: (targetSkill.level as CEFRLevel) || CEFRLevel.B1,
-            priority: (targetState.scorePercentage ?? 100) < 60 ? 'HIGH' : 'MEDIUM',
+            targetLevel: learnerLevel,
+            // Only a shortfall can be urgent. Filling a gap in what we know, or
+            // consolidating something already met, is never HIGH.
+            priority:
+              basis === 'BELOW_TARGET' && (targetState.scorePercentage ?? 100) < 60
+                ? 'HIGH'
+                : basis === 'CONSOLIDATION'
+                  ? 'LOW'
+                  : 'MEDIUM',
             recommendedActionText: `Focus on ${targetSkill.name}`,
             rationale,
             evidenceBasisCount: targetEvidenceCount,
