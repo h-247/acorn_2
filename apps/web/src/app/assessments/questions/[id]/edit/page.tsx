@@ -28,6 +28,12 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
   const [estimatedMinutes, setEstimatedMinutes] = useState(5);
   const [status, setStatus] = useState('APPROVED');
   const [usageCount, setUsageCount] = useState(0);
+  // Which material this question was written from. The column and the
+  // contract both had room for it; only the form never asked, so a question
+  // authored by hand broke the Material -> Question -> Evidence chain that
+  // the evidence drill-down and the learner journey are read from.
+  const [sourceMaterialId, setSourceMaterialId] = useState('');
+  const [materials, setMaterials] = useState<any[]>([]);
 
   // MCQ specific
   const [options, setOptions] = useState<string[]>([
@@ -69,11 +75,17 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
     setErrorMessage(null);
     try {
       const skillsPromise = api.getSkills();
+      const materialsPromise = api.getMaterials().catch(() => []);
       const questionPromise = !isNew ? api.getQuestion(params.id) : Promise.resolve(null);
 
-      const [skills, q] = await Promise.all([skillsPromise, questionPromise]);
+      const [skills, mats, q] = await Promise.all([
+        skillsPromise,
+        materialsPromise,
+        questionPromise,
+      ]);
 
       setAvailableSkills(skills || []);
+      setMaterials(Array.isArray(mats) ? mats : (mats as any)?.items || []);
       if (skills && skills.length > 0) {
         setSelectedSkillId((prev) => prev || skills[0].id);
       }
@@ -91,6 +103,7 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
         if (q.options) setOptions(q.options);
         if (q.correctAnswer) setCorrectAnswer(q.correctAnswer);
         if (q.explanation) setExplanation(q.explanation);
+        setSourceMaterialId(q.sourceMaterialId || '');
         if (q.rubric) {
           if (typeof q.rubric === 'string') setRubricCriteria(q.rubric);
           else setRubricCriteria(JSON.stringify(q.rubric, null, 2));
@@ -135,6 +148,7 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
       }
 
       const payload: any = {
+        sourceMaterialId: sourceMaterialId || undefined,
         type,
         prompt,
         passage: passage || undefined,
@@ -353,6 +367,16 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
           <div className="space-y-4">
             <Card className="p-5 border-gray-200/80 space-y-4">
               <h3 className="text-sm font-bold text-[#082051]">Configuration</h3>
+
+              <Select
+                label="Source Material (optional)"
+                value={sourceMaterialId}
+                onChange={(e) => setSourceMaterialId(e.target.value)}
+                options={[
+                  { label: '— Not from a material —', value: '' },
+                  ...materials.map((m: any) => ({ label: m.title, value: m.id })),
+                ]}
+              />
 
               <Select
                 label="Primary Skill"

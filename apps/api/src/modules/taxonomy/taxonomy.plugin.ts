@@ -63,7 +63,9 @@ const RESTORE_WITH_ANCESTORS = (id: string) => sql`
 
 export const taxonomyPlugin: FastifyPluginAsync = async (fastify) => {
   // Get flat list of skills (with optional filtering & pagination)
-  fastify.get('/skills', async (request) => {
+  // A centre's skill tree is its own business. These two were the only reads
+  // in the service with no authentication at all.
+  fastify.get('/skills', { preHandler: [authenticate] }, async (request) => {
     const parsedQuery = SkillQuerySchema.parse(request.query);
     const rawQuery = (request.query as any) || {};
 
@@ -141,7 +143,7 @@ export const taxonomyPlugin: FastifyPluginAsync = async (fastify) => {
   });
 
   // Get hierarchical skills tree
-  fastify.get('/tree', async (request) => {
+  fastify.get('/tree', { preHandler: [authenticate] }, async (request) => {
     const includeArchived = (request.query as any)?.includeArchived === 'true';
     const allSkills = includeArchived
       ? await db.select().from(schema.skills)

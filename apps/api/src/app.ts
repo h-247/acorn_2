@@ -16,8 +16,31 @@ import { recommendationPlugin } from './modules/recommendation/recommendation.pl
 import { auditPlugin } from './modules/audit/audit.plugin.js';
 
 export function buildApp(): FastifyInstance {
+  // Section 07 of the spec asks for request id, actor, route, status and
+  // latency on every request, and for tokens and passwords never to appear.
+  // Logging was switched off outright, which kept test output clean and left
+  // a running service with nothing to look at when something went wrong.
   const app = fastify({
-    logger: false, // keep clean test output
+    logger: process.env.NODE_ENV === 'test' ? false : { level: process.env.LOG_LEVEL || 'info' },
+    // Fastify's own request/response lines would repeat what the hook below
+    // records, without the actor.
+    disableRequestLogging: true,
+  });
+
+  app.addHook('onResponse', async (request, reply) => {
+    if (process.env.NODE_ENV === 'test') return;
+    request.log.info(
+      {
+        reqId: request.id,
+        actorId: request.user?.id ?? null,
+        actorRole: request.user?.role ?? null,
+        method: request.method,
+        route: request.routeOptions?.url ?? request.url,
+        status: reply.statusCode,
+        ms: Math.round(reply.elapsedTime),
+      },
+      'request'
+    );
   });
 
   app.register(cors, {

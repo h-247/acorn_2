@@ -60,11 +60,17 @@ describe('Skill lifecycle', () => {
   });
 
   it('keeps archived skills out of the pickers unless asked for', async () => {
-    const tree = (await app.inject({ method: 'GET', url: '/api/taxonomy/tree' })).json();
+    const tree = (
+      await app.inject({ method: 'GET', url: '/api/taxonomy/tree', headers: auth() })
+    ).json();
     expect(tree.some((s: any) => s.id === SEED_IDS.skillReading)).toBe(false);
 
     const all = (
-      await app.inject({ method: 'GET', url: '/api/taxonomy/tree?includeArchived=true' })
+      await app.inject({
+        method: 'GET',
+        url: '/api/taxonomy/tree?includeArchived=true',
+        headers: auth(),
+      })
     ).json();
     expect(all.some((s: any) => s.id === SEED_IDS.skillReading)).toBe(true);
   });
