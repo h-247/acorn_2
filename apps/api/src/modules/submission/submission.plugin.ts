@@ -325,6 +325,11 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
       evaluatedAt: sub.evaluatedAt ? sub.evaluatedAt.toISOString() : null,
       dueAt: assignment?.dueAt ? assignment.dueAt.toISOString() : null,
       timeLimitMinutes: assessment?.timeLimitMinutes ?? null,
+      assessmentStatus: assessment?.status ?? null,
+      // The player turns read-only on this rather than discovering the close
+      // when an autosave comes back 400.
+      isClosed:
+        assessment?.status === AssessmentStatus.CLOSED || assignment?.status === 'CLOSED',
       assessmentTitle: assessment?.title || 'Assessment',
       assessmentInstructions: assessment?.instructions || null,
       learnerName: learner?.name || 'Student',

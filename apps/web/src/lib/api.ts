@@ -191,6 +191,12 @@ export const api = {
     request<any>('/assessments', { method: 'POST', body: JSON.stringify(data) }),
   updateAssessment: (id: string, data: any) =>
     request<any>(`/assessments/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  markAssessmentReady: (id: string) =>
+    request<any>(`/assessments/${id}/ready`, { method: 'PUT' }),
+  getAssessmentReadiness: (id: string) =>
+    request<{ status: string; ready: boolean; faults: string[] }>(
+      `/assessments/${id}/readiness`
+    ),
   publishAssessment: (id: string) =>
     request<any>(`/assessments/${id}/publish`, { method: 'PUT' }),
   closeAssessment: (id: string) =>

@@ -26,6 +26,9 @@ export default function AssessmentDetailPage({ params }: { params: { id: string 
   const [actionLoading, setActionLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // What stands between this draft and READY, straight from the backend so the
+  // two can never disagree about whether the paper is publishable.
+  const [readiness, setReadiness] = useState<{ ready: boolean; faults: string[] } | null>(null);
 
   const loadAssessment = useCallback(async () => {
     setLoading(true);
@@ -37,6 +40,16 @@ export default function AssessmentDetailPage({ params }: { params: { id: string 
       ]);
       setAssessment(assData);
       setClasses(clsList || []);
+
+      if (assData?.status === 'DRAFT' || assData?.status === 'READY') {
+        try {
+          setReadiness(await api.getAssessmentReadiness(params.id));
+        } catch {
+          setReadiness(null);
+        }
+      } else {
+        setReadiness(null);
+      }
       if (clsList && clsList.length > 0) {
         setSelectedClassId((prev) => prev || clsList[0].id);
       }
@@ -50,6 +63,19 @@ export default function AssessmentDetailPage({ params }: { params: { id: string 
   useEffect(() => {
     loadAssessment();
   }, [loadAssessment]);
+
+  const handleMarkReady = async () => {
+    setActionLoading(true);
+    setErrorMessage(null);
+    try {
+      await api.markAssessmentReady(params.id);
+      loadAssessment();
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to mark this assessment ready');
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const handlePublish = async () => {
     setActionLoading(true);
@@ -137,7 +163,7 @@ export default function AssessmentDetailPage({ params }: { params: { id: string 
           badge={<StatusBadge status={assessment?.status || 'DRAFT'} />}
           actions={
             <div className="flex items-center gap-2">
-              {assessment?.status === 'DRAFT' && (
+              {(assessment?.status === 'DRAFT' || assessment?.status === 'READY') && (
                 <Button
                   variant="outline"
                   size="md"
@@ -149,6 +175,19 @@ export default function AssessmentDetailPage({ params }: { params: { id: string 
               )}
 
               {assessment?.status === 'DRAFT' && (
+                <Button
+                  variant="secondary"
+                  size="md"
+                  icon={<Check className="w-4 h-4 text-emerald-600" />}
+                  loading={actionLoading}
+                  disabled={readiness ? !readiness.ready : false}
+                  onClick={handleMarkReady}
+                >
+                  Mark Ready
+                </Button>
+              )}
+
+              {assessment?.status === 'READY' && (
                 <Button
                   variant="secondary"
                   size="md"
@@ -189,6 +228,29 @@ export default function AssessmentDetailPage({ params }: { params: { id: string 
           <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-xs text-red-700 font-medium">
             <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
             <span>{errorMessage}</span>
+          </div>
+        )}
+
+        {assessment?.status === 'DRAFT' && readiness && !readiness.ready && (
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+            <div className="flex items-center gap-2 font-semibold mb-1.5">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>This assessment cannot be published yet</span>
+            </div>
+            <ul className="list-disc pl-6 space-y-0.5 font-medium">
+              {readiness.faults.map((fault, i) => (
+                <li key={i}>{fault}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {assessment?.status === 'READY' && (
+          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-xs text-emerald-800 font-medium">
+            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>
+              Checked and ready. Publishing makes it assignable; editing it sends it back to draft.
+            </span>
           </div>
         )}
 

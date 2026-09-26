@@ -35,6 +35,8 @@ export default function AssessmentBuilderPage() {
   // Only for questions without a rubric; a rubric carries its own total.
   const [itemPoints, setItemPoints] = useState<Record<string, number>>({});
   const [loadingDraft, setLoadingDraft] = useState(false);
+  // Not an error: something the teacher should know before they save.
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Question search & filter
   const [bankSearch, setBankSearch] = useState('');
@@ -79,11 +81,17 @@ export default function AssessmentBuilderPage() {
         const a = await api.getAssessment(draftId);
         if (cancelled) return;
 
-        if (a.status && a.status !== 'DRAFT') {
+        // Only a published or closed paper is frozen. A READY one may still
+        // be corrected, and saving sends it back to DRAFT for a fresh check.
+        if (a.status && a.status !== 'DRAFT' && a.status !== 'READY') {
           setErrorMessage(
             `This assessment is ${a.status} and can no longer be edited. Create a new one instead.`
           );
           return;
+        }
+
+        if (a.status === 'READY') {
+          setNotice('This assessment is ready to publish. Saving a change returns it to draft.');
         }
 
         setTitle(a.title || '');
@@ -155,14 +163,30 @@ export default function AssessmentBuilderPage() {
         : await api.createAssessment(payload);
 
       if (initialStatus === 'PUBLISHED') {
-        // Swallowing this left the teacher on the assessment page believing it
-        // was published when it was still a draft - and nothing on that page
-        // says otherwise loudly enough to catch.
+        // The lifecycle is DRAFT -> READY -> PUBLISHED, so publishing from the
+        // builder is two calls. The readiness check runs in the first one and
+        // is where an incomplete paper is turned back.
+        //
+        // Swallowing either failure left the teacher on the assessment page
+        // believing it was published when it was still a draft - and nothing
+        // on that page says otherwise loudly enough to catch.
+        try {
+          await api.markAssessmentReady(res.id);
+        } catch (readyErr: any) {
+          setErrorMessage(
+            `Assessment saved as a draft, but it is not ready to publish: ${
+              readyErr?.message || 'unknown error'
+            }`
+          );
+          setSaving(false);
+          return;
+        }
+
         try {
           await api.publishAssessment(res.id);
         } catch (publishErr: any) {
           setErrorMessage(
-            `Assessment saved as a draft, but publishing failed: ${
+            `Assessment is ready, but publishing failed: ${
               publishErr?.message || 'unknown error'
             }`
           );
@@ -253,6 +277,13 @@ export default function AssessmentBuilderPage() {
             </div>
           }
         />
+
+        {notice && !errorMessage && (
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-2 text-xs text-blue-800 font-medium">
+            <AlertCircle className="w-4 h-4 text-blue-600 shrink-0" />
+            <span>{notice}</span>
+          </div>
+        )}
 
         {errorMessage && (
           <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center justify-between gap-2 text-xs text-red-700 font-medium">
