@@ -1,3 +1,13 @@
+# Backing services for running the app from source, plus the app itself behind
+# the "app" profile.
+#
+#   docker compose -f compose.dev.yml up -d --wait
+#       Postgres and SeaweedFS only. This is what DEMO-SETUP step 3 means: the
+#       app then runs from source with `pnpm dev`.
+#
+#   docker compose -f compose.dev.yml --profile app up -d --wait
+#       Everything in containers - migrations, API, web.
+#
 name: acorn
 
 services:
@@ -33,6 +43,78 @@ services:
       interval: 3s
       timeout: 5s
       retries: 10
+
+  # Applies pending migrations, then exits. The API waits for it to finish, so a
+  # fresh `up` never serves against a schema that is one migration behind.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: acorn-migrate
+    profiles: ["app"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-acorn}:${POSTGRES_PASSWORD:-acorn_dev_only}@postgres:5432/${POSTGRES_DB:-acorn}
+    command: ["pnpm", "exec", "drizzle-kit", "migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # All eleven modules in one process - identity, taxonomy, course, material,
+  # assessment, submission, evidence, learner-state, recommendation, ai, audit.
+  # A modular monolith is one deployable, so it is one container (ADR-0001).
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: acorn-api
+    profiles: ["app"]
+    environment:
+      # Inside the compose network Postgres answers on its own port 5432. The
+      # 5435 in .env is the port published to the host and means nothing here.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-acorn}:${POSTGRES_PASSWORD:-acorn_dev_only}@postgres:5432/${POSTGRES_DB:-acorn}
+      OBJECT_STORAGE_ENDPOINT: http://seaweedfs:8333
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-acorn-dev}
+      OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:-acorn}
+      OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:-acorn_dev_only}
+      OBJECT_STORAGE_REGION: ${OBJECT_STORAGE_REGION:-us-east-1}
+      OBJECT_STORAGE_FORCE_PATH_STYLE: "true"
+      # Where the browser reaches the web app, for the CORS and cross-origin
+      # mutation checks - so a host address, not a service name.
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+      JWT_SECRET: ${JWT_SECRET:-acorn_super_secret_jwt_key_for_dev_123}
+      RECENT_EVIDENCE_COUNT: ${RECENT_EVIDENCE_COUNT:-20}
+      MASTERY_TARGET: ${MASTERY_TARGET:-0.8}
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:4000/health > /dev/null || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Baked into the browser bundle at build time, so changing it means
+        # rebuilding the image, not restarting the container.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000/api}
+    container_name: acorn-web
+    profiles: ["app"]
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   acorn_postgres_data:

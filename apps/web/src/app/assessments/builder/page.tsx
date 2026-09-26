@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { Suspense, useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   AppShell,
@@ -17,7 +17,7 @@ import {
 import { Check, Plus, Trash2, Clock, CheckSquare, AlertCircle, Eye, ArrowUp, ArrowDown, Search } from 'lucide-react';
 import { api } from '@/lib/api';
 
-export default function AssessmentBuilderPage() {
+function AssessmentBuilderForm() {
   const router = useRouter();
   // `?draftId=…` reopens an existing draft. Without it the page behaves as it
   // always has and creates a new assessment.
@@ -634,5 +634,17 @@ export default function AssessmentBuilderPage() {
         </Dialog>
       </div>
     </AppShell>
+  );
+}
+
+export default function AssessmentBuilderPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-12 text-center text-sm text-[#656C79]">Loading the builder...</div>
+      }
+    >
+      <AssessmentBuilderForm />
+    </Suspense>
   );
 }

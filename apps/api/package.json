@@ -4,14 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "pnpm --filter @acorn/contracts build",
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
+    "pretest": "pnpm --filter @acorn/contracts build",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx src/infrastructure/persistence/seed.ts",
-    "db:reset": "tsx src/infrastructure/persistence/reset-db.ts"
+    "db:reset": "tsx src/infrastructure/persistence/reset-db.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@acorn/contracts": "workspace:*",

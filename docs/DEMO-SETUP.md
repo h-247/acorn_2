@@ -50,6 +50,33 @@ pnpm --filter @acorn/api dev
 pnpm --filter @acorn/web dev
 ```
 
+### Or run everything in containers
+
+The same file carries the application behind a profile, so the command above
+keeps starting Postgres and SeaweedFS alone. To bring up the whole stack
+instead — migrations, API and web, each in its own container:
+
+```bash
+docker compose -f compose.dev.yml --profile app up -d --wait --build
+```
+
+The API image holds all eleven modules in one process, because a modular
+monolith is one deployable (ADR-0001). Migrations run as a separate container
+that exits when it is done; the API waits for it, so a fresh `up` never serves
+against a schema one migration behind.
+
+Seed the demo data once the stack is healthy:
+
+```bash
+docker compose -f compose.dev.yml exec api pnpm db:seed
+```
+
+To stop it and keep the data:
+
+```bash
+docker compose -f compose.dev.yml --profile app down
+```
+
 ---
 
 ## 3. Demo Accounts (Seeded)

@@ -31,7 +31,8 @@ export function buildApp(): FastifyInstance {
     if (process.env.NODE_ENV === 'test') return;
     request.log.info(
       {
-        reqId: request.id,
+        // request.log already carries reqId; repeating it here printed the
+        // field twice on every line.
         actorId: request.user?.id ?? null,
         actorRole: request.user?.role ?? null,
         method: request.method,
