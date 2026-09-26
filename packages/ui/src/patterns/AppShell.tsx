@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import { Avatar } from '../primitives/Avatar';
 
+declare const process: { env: { NEXT_PUBLIC_API_URL?: string } };
+
 export interface NavItem {
   id: string;
   label: string;
@@ -84,9 +86,7 @@ export const AppShell: React.FC<AppShellProps> = ({
       return;
     }
     try {
-      const apiBase =
-        (typeof globalThis !== 'undefined' && (globalThis as any).process?.env?.NEXT_PUBLIC_API_URL) ||
-        'http://localhost:4000/api';
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
       await fetch(`${apiBase}/identity/logout`, {
         method: 'POST',
         credentials: 'include',

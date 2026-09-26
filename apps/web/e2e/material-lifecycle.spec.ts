@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Material Lifecycle E2E', () => {
   test('should enforce end-to-end lifecycle and student access controls', async ({ request, page, browser }) => {
     // 1. Admin login
-    const loginRes = await request.post('http://localhost:4000/api/identity/login', {
+    const loginRes = await request.post(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/identity/login`, {
       data: { email: 'admin@acorn.edu', password: 'admin123' },
     });
     expect(loginRes.status()).toBe(200);
@@ -14,7 +14,7 @@ test.describe('Material Lifecycle E2E', () => {
     const liamId = '33333333-3333-3333-3333-333333333333';
 
     // Create an outsider student (not in any class)
-    const createOutsiderRes = await request.post('http://localhost:4000/api/identity/users', {
+    const createOutsiderRes = await request.post(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/identity/users`, {
       headers: { Authorization: `Bearer ${adminToken}` },
       data: {
         email: 'outsider@student.acorn.edu',
@@ -26,7 +26,7 @@ test.describe('Material Lifecycle E2E', () => {
     expect(createOutsiderRes.status()).toBe(201);
 
     // Login as outsider
-    const outsiderLoginRes = await request.post('http://localhost:4000/api/identity/login', {
+    const outsiderLoginRes = await request.post(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/identity/login`, {
       data: { email: 'outsider@student.acorn.edu', password: 'password123' },
     });
     expect(outsiderLoginRes.status()).toBe(200);
@@ -34,7 +34,7 @@ test.describe('Material Lifecycle E2E', () => {
     const outsiderToken = decodeURIComponent(outsiderCookie.match(/acorn_token=([^;]+)/)?.[1] || '');
 
     // Login as Liam via API to check downloads
-    const liamLoginRes = await request.post('http://localhost:4000/api/identity/login', {
+    const liamLoginRes = await request.post(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/identity/login`, {
       data: { email: 'liam.chen@student.acorn.edu', password: 'password123' },
     });
     expect(liamLoginRes.status()).toBe(200);
@@ -43,7 +43,7 @@ test.describe('Material Lifecycle E2E', () => {
 
     const classId = '55555555-5555-5555-5555-555555555555'; // SEED_IDS.classIeltsA
 
-    const newSkillRes = await request.post('http://localhost:4000/api/taxonomy/skills', {
+    const newSkillRes = await request.post(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/taxonomy/skills`, {
       headers: { Authorization: `Bearer ${adminToken}` },
       data: {
         code: 'AAA_TEST_SKILL',
@@ -55,14 +55,13 @@ test.describe('Material Lifecycle E2E', () => {
     expect(newSkillRes.status()).toBe(201);
     const grammarSkill = await newSkillRes.json();
 
-    const checkSkillsRes = await request.get('http://localhost:4000/api/taxonomy/skills', {
+    const checkSkillsRes = await request.get(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/taxonomy/skills`, {
       headers: { Authorization: `Bearer ${adminToken}` }
     });
     const skillsCheck = await checkSkillsRes.json();
-    console.log('FIRST SKILL BY DEFAULT:', skillsCheck[0]?.code);
 
     // 2. Admin creates material as DRAFT
-    const createRes = await request.post('http://localhost:4000/api/materials', {
+    const createRes = await request.post(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/materials`, {
       headers: { Authorization: `Bearer ${adminToken}` },
       data: {
         title: 'Playwright E2E Lifecycle Material',
@@ -78,7 +77,7 @@ test.describe('Material Lifecycle E2E', () => {
     expect(material.status).toBe('DRAFT');
 
     // Upload a file to it right away so we can test download paths
-    const uploadRes = await request.post(`http://localhost:4000/api/materials/${mId}/files`, {
+    const uploadRes = await request.post(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/materials/${mId}/files`, {
       headers: { Authorization: `Bearer ${adminToken}` },
       multipart: {
         file: {
@@ -102,7 +101,7 @@ test.describe('Material Lifecycle E2E', () => {
     await studentPage.waitForURL('/student');
 
         // Get students from class to avoid recommendation caching
-    const classDataRes = await request.get(`http://localhost:4000/api/classes/${classId}/enrollments`, {
+    const classDataRes = await request.get(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/classes/${classId}/enrollments`, {
       headers: { Authorization: `Bearer ${adminToken}` }
     });
     const classData = await classDataRes.json();
@@ -114,19 +113,19 @@ test.describe('Material Lifecycle E2E', () => {
     // Helper for negative assertions
     const assertUnavailable = async (stateName: string, studentId: string) => {
       // API: Direct fetch should fail for student
-      const fetchRes = await request.get(`http://localhost:4000/api/materials/${mId}`, {
+      const fetchRes = await request.get(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/materials/${mId}`, {
         headers: { Authorization: `Bearer ${liamToken}` }
       });
       expect([403, 404], `State ${stateName}: Direct fetch should be 403 or 404`).toContain(fetchRes.status());
 
       // API: Download should fail for student
-      const dlRes = await request.get(`http://localhost:4000/api/materials/${mId}/files/${fileId}/download`, {
+      const dlRes = await request.get(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/materials/${mId}/files/${fileId}/download`, {
         headers: { Authorization: `Bearer ${liamToken}` }
       });
       expect([403, 404], `State ${stateName}: Download should be 403 or 404`).toContain(dlRes.status());
 
       // API: Should not be in candidates
-      const candidateRes = await request.get(`http://localhost:4000/api/recommendations/learner/${studentId}`, {
+      const candidateRes = await request.get(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/recommendations/learner/${studentId}`, {
         headers: { Authorization: `Bearer ${adminToken}` }
       });
       expect(candidateRes.status()).toBe(200);
@@ -143,7 +142,7 @@ test.describe('Material Lifecycle E2E', () => {
     await assertUnavailable('DRAFT', otherStudents[0]);
 
     // State 2: UNDER_REVIEW
-    const underReviewRes = await request.put(`http://localhost:4000/api/materials/${mId}/status`, {
+    const underReviewRes = await request.put(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/materials/${mId}/status`, {
       headers: { Authorization: `Bearer ${adminToken}` },
       data: { status: 'UNDER_REVIEW' }
     });
@@ -151,7 +150,7 @@ test.describe('Material Lifecycle E2E', () => {
     await assertUnavailable('UNDER_REVIEW', otherStudents[1]);
 
     // State 3: APPROVED (but not released)
-    const approveRes = await request.put(`http://localhost:4000/api/materials/${mId}/status`, {
+    const approveRes = await request.put(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/materials/${mId}/status`, {
       headers: { Authorization: `Bearer ${adminToken}` },
       data: { status: 'APPROVED' }
     });
@@ -159,7 +158,7 @@ test.describe('Material Lifecycle E2E', () => {
     await assertUnavailable('APPROVED_UNRELEASED', otherStudents[2]);
 
     // State 4: ARCHIVED (move from APPROVED to ARCHIVED)
-    const archiveRes = await request.put(`http://localhost:4000/api/materials/${mId}/status`, {
+    const archiveRes = await request.put(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/materials/${mId}/status`, {
       headers: { Authorization: `Bearer ${adminToken}` },
       data: { status: 'ARCHIVED' }
     });
@@ -167,14 +166,14 @@ test.describe('Material Lifecycle E2E', () => {
     await assertUnavailable('ARCHIVED', otherStudents[3]);
 
     // Move back to APPROVED for positive flow
-    const reApproveRes = await request.put(`http://localhost:4000/api/materials/${mId}/status`, {
+    const reApproveRes = await request.put(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/materials/${mId}/status`, {
       headers: { Authorization: `Bearer ${adminToken}` },
       data: { status: 'APPROVED' }
     });
     expect(reApproveRes.status()).toBe(200);
 
     // 5. Release to class
-    const releaseRes = await request.post(`http://localhost:4000/api/materials/${mId}/release`, {
+    const releaseRes = await request.post(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/materials/${mId}/release`, {
       headers: { Authorization: `Bearer ${adminToken}` },
       data: { classId }
     });
@@ -182,13 +181,13 @@ test.describe('Material Lifecycle E2E', () => {
 
     // 6. Verify positive flow for Liam (enrolled)
     // API: Direct fetch should succeed
-    const fetchRes = await request.get(`http://localhost:4000/api/materials/${mId}`, {
+    const fetchRes = await request.get(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/materials/${mId}`, {
       headers: { Authorization: `Bearer ${liamToken}` }
     });
     expect(fetchRes.status()).toBe(200);
 
     // API: Download should succeed and return signed URL
-    const liamDlRes = await request.get(`http://localhost:4000/api/materials/${mId}/files/${fileId}/download`, {
+    const liamDlRes = await request.get(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/materials/${mId}/files/${fileId}/download`, {
       headers: { Authorization: `Bearer ${liamToken}` }
     });
     expect(liamDlRes.status()).toBe(200);
@@ -198,12 +197,11 @@ test.describe('Material Lifecycle E2E', () => {
     expect(liamDlData.fileName).toBe('test.pdf');
     expect(liamDlData.mimeType).toBe('application/pdf');
     // API: Should be in candidates
-    const candidateRes2 = await request.get(`http://localhost:4000/api/recommendations/learner/${liamId}`, {
+    const candidateRes2 = await request.get(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/recommendations/learner/${liamId}`, {
       headers: { Authorization: `Bearer ${adminToken}` }
     });
     expect(candidateRes2.status()).toBe(200);
     const rec2 = await candidateRes2.json();
-    console.log('REC2:', JSON.stringify(rec2, null, 2));
     const candidateMaterials2 = rec2.candidates.map((c: any) => c.materialId);
     expect(candidateMaterials2).toContain(mId);
 
@@ -214,7 +212,7 @@ test.describe('Material Lifecycle E2E', () => {
     await expect(studentPage.getByText('This is test material content for Playwright')).toBeVisible();
 
     // 7. Verify outsider student cannot download
-    const outsiderDlRes = await request.get(`http://localhost:4000/api/materials/${mId}/files/${fileId}/download`, {
+    const outsiderDlRes = await request.get(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/materials/${mId}/files/${fileId}/download`, {
       headers: { Authorization: `Bearer ${outsiderToken}` }
     });
     expect(outsiderDlRes.status()).toBe(403);

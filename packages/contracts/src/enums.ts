@@ -64,6 +64,8 @@ export const QuestionType = {
   SHORT_ANSWER: 'SHORT_ANSWER',
   WRITING: 'WRITING',
   SPEAKING: 'SPEAKING',
+  /** MCQ or SHORT_ANSWER linked to a material audio file for the Listening skill */
+  LISTENING: 'LISTENING',
 } as const;
 export type QuestionType = (typeof QuestionType)[keyof typeof QuestionType];
 

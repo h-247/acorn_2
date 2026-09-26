@@ -66,11 +66,11 @@ export const RecommendationPanel: React.FC<RecommendationPanelProps> = ({
               Candidate Materials (Reuse → Adapt)
             </h3>
             <span className="text-xs text-[#656C79]">
-              {recommendation.candidates.length} options ready
+              {(recommendation.candidates || []).length} options ready
             </span>
           </div>
           <div className="space-y-3">
-            {recommendation.candidates.map((candidate, i) => (
+            {(recommendation.candidates || []).map((candidate, i) => (
               <CandidateMaterialCard
                 key={candidate.materialId ?? `no-match-${i}`}
                 candidate={candidate}

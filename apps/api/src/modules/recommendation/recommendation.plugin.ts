@@ -21,6 +21,21 @@ import { NotFoundError, ForbiddenError, BadRequestError } from '../../shared/err
 import { config } from '../../shared/config.js';
 import { computeSkillState } from '../learner-state/learner-state.service.js';
 
+/** One shape for the rationale, whatever an older row happens to hold. */
+function normaliseRationale(stored: unknown): Record<string, unknown> {
+  let value = stored;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return { texts: [value as string] };
+    }
+  }
+  if (Array.isArray(value)) return { texts: value as string[] };
+  if (value && typeof value === 'object') return value as Record<string, unknown>;
+  return { texts: [] };
+}
+
 export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
   // Get recommendation for a learner
   fastify.get('/learner/:learnerId', { preHandler: [authenticate] }, async (request, reply) => {
@@ -399,11 +414,9 @@ export const recommendationPlugin: FastifyPluginAsync = async (fastify) => {
       targetLevel: rec.targetLevel as CEFRLevel,
       priority: rec.priority as 'HIGH' | 'MEDIUM' | 'LOW',
       recommendedActionText: rec.recommendedActionText,
-      // Older rows hold a bare array of sentences. Normalise on the way out
-      // so every client sees one shape.
-      rationale: Array.isArray(rec.rationale)
-        ? { texts: rec.rationale as string[] }
-        : (rec.rationale as Record<string, unknown>) ?? { texts: [] },
+      // Older rows hold a bare array of sentences, and some hold it as text.
+      // Normalise on the way out so every client sees one shape.
+      rationale: normaliseRationale(rec.rationale),
       evidenceBasisCount: rec.evidenceBasisCount,
       learnerCurrentScore: rec.learnerCurrentScore,
       learnerConfidence: rec.learnerConfidence as ConfidenceLevel,

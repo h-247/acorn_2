@@ -214,12 +214,13 @@ export const assignments = pgTable('assignments', {
   learnerIdx: index('assignments_learner_idx').on(table.learnerId),
   assessmentIdx: index('assignments_assessment_idx').on(table.assessmentId),
   // An assignment names a class or one learner, never both audiences at once.
-  oneClassAssignment: uniqueIndex('assignments_assessment_class_idx')
+  // Scoped to OPEN so a closed assignment does not block a fresh one.
+  uniqueOpenClass: uniqueIndex('assignments_open_class_uidx')
     .on(table.assessmentId, table.classId)
-    .where(sql`learner_id is null and class_id is not null`),
-  oneLearnerAssignment: uniqueIndex('assignments_assessment_learner_idx')
+    .where(sql`status = 'OPEN'`),
+  uniqueOpenLearner: uniqueIndex('assignments_open_learner_uidx')
     .on(table.assessmentId, table.learnerId)
-    .where(sql`learner_id is not null`),
+    .where(sql`status = 'OPEN'`),
 }));
 
 export const submissions = pgTable('submissions', {
@@ -247,7 +248,7 @@ export const submissions = pgTable('submissions', {
   assignmentIdx: index('submissions_assignment_idx').on(table.assignmentId),
   statusIdx: index('submissions_status_idx').on(table.status),
   // One attempt per learner per assignment, so assigning twice is a no-op.
-  oneAttemptPerLearner: uniqueIndex('submissions_assignment_learner_idx').on(
+  uniqueAssignmentLearner: uniqueIndex('submissions_assignment_learner_uidx').on(
     table.assignmentId,
     table.learnerId
   ),

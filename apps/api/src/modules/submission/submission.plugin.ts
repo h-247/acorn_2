@@ -268,16 +268,6 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
       await assertTeacherSubmissionAccess(user, sub);
     }
 
-    const [assessment] = await db.select().from(schema.assessments).where(eq(schema.assessments.id, sub.assessmentId));
-    const [assignment] = sub.assignmentId
-      ? await db.select().from(schema.assignments).where(eq(schema.assignments.id, sub.assignmentId))
-      : [null];
-    const [learner] = await db.select().from(schema.users).where(eq(schema.users.id, sub.learnerId));
-    const responses = await db
-      .select()
-      .from(schema.submissionResponses)
-      .where(eq(schema.submissionResponses.submissionId, sub.id));
-
     // G01: When the learner first opens an unstarted attempt, record the actual start time.
     // This is idempotent: subsequent opens do NOT reset the timer.
     if (
@@ -292,7 +282,6 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
         .where(
           and(
             eq(schema.submissions.id, sub.id),
-            // Double-check still null to avoid race conditions
             isNull(schema.submissions.actualStartedAt)
           )
         )
@@ -301,6 +290,16 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
         sub = { ...sub, actualStartedAt: updated.actualStartedAt };
       }
     }
+
+    const [assessment] = await db.select().from(schema.assessments).where(eq(schema.assessments.id, sub.assessmentId));
+    const [assignment] = sub.assignmentId
+      ? await db.select().from(schema.assignments).where(eq(schema.assignments.id, sub.assignmentId))
+      : [null];
+    const [learner] = await db.select().from(schema.users).where(eq(schema.users.id, sub.learnerId));
+    const responses = await db
+      .select()
+      .from(schema.submissionResponses)
+      .where(eq(schema.submissionResponses.submissionId, sub.id));
 
     // Also get full question data for review/player
     const assessmentItems = await db
@@ -364,6 +363,31 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
     };
   });
 
+  // 2b. Begin Assessment (Start Timer)
+  fastify.post('/:id/begin', { preHandler: [authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const user = request.user!;
+
+    const [sub] = await db.select().from(schema.submissions).where(eq(schema.submissions.id, id));
+    if (!sub) throw new NotFoundError('Submission not found');
+
+    if (user.id !== sub.learnerId) {
+      throw new ForbiddenError('Only the owner student can begin this submission');
+    }
+
+    if (sub.status !== SubmissionStatus.STARTED) {
+      return { success: true, actualStartedAt: sub.actualStartedAt?.toISOString() };
+    }
+
+    const now = new Date();
+    await db
+      .update(schema.submissions)
+      .set({ actualStartedAt: now, status: SubmissionStatus.IN_PROGRESS })
+      .where(and(eq(schema.submissions.id, id), isNull(schema.submissions.actualStartedAt)));
+
+    return { success: true, actualStartedAt: now.toISOString() };
+  });
+
 
   // 3. Student Autosave
   fastify.post('/:id/autosave', { preHandler: [authenticate] }, async (request) => {
@@ -402,18 +426,39 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
     const now = new Date();
 
     await db.transaction(async (tx) => {
+      // G08 Fix: Fetch existing to preserve fileKey if it exists
+      const [existingResp] = await tx
+        .select({ responsePayload: schema.submissionResponses.responsePayload })
+        .from(schema.submissionResponses)
+        .where(
+          and(
+            eq(schema.submissionResponses.submissionId, id),
+            eq(schema.submissionResponses.questionId, body.questionId)
+          )
+        );
+
+      const existing = existingResp?.responsePayload as Record<string, any> | null;
+      let effectivePayload = body.responsePayload as Record<string, any>;
+
+      if (existing?.fileKey) {
+        effectivePayload = {
+          ...effectivePayload,
+          fileKey: existing.fileKey
+        };
+      }
+
       await tx
         .insert(schema.submissionResponses)
         .values({
           submissionId: id,
           questionId: body.questionId,
-          responsePayload: body.responsePayload,
+          responsePayload: effectivePayload,
           updatedAt: now,
         })
         .onConflictDoUpdate({
           target: [schema.submissionResponses.submissionId, schema.submissionResponses.questionId],
           set: {
-            responsePayload: body.responsePayload,
+            responsePayload: effectivePayload,
             updatedAt: now,
           },
         });
@@ -718,9 +763,13 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
         let normalizedScore: number | null = null;
         let rawScore: number | null = null;
 
-        if (question?.type === 'MCQ' && question.correctAnswer) {
+        if ((question?.type === 'MCQ' || question?.type === 'LISTENING') && question.correctAnswer) {
           autoGradableCount++;
-          isCorrect = String(ans.responsePayload).trim() === question.correctAnswer.trim();
+          let submittedValue = ans.responsePayload;
+          if (typeof submittedValue === 'object' && submittedValue !== null && 'answer' in submittedValue) {
+            submittedValue = (submittedValue as any).answer;
+          }
+          isCorrect = String(submittedValue).trim() === question.correctAnswer.trim();
           normalizedScore = isCorrect ? 1.0 : 0.0;
           rawScore = isCorrect ? itemPoints : 0;
           totalEarnedPoints += rawScore;
@@ -804,7 +853,12 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
         for (const ans of body.answers) {
           const question = questions.find((q) => q.id === ans.questionId);
           const skillsForQ = qSkills.filter((qs) => qs.questionId === ans.questionId);
-          const isCorrect = String(ans.responsePayload).trim() === question?.correctAnswer?.trim();
+
+          let submittedValue = ans.responsePayload;
+          if (typeof submittedValue === 'object' && submittedValue !== null && 'answer' in submittedValue) {
+            submittedValue = (submittedValue as any).answer;
+          }
+          const isCorrect = String(submittedValue).trim() === question?.correctAnswer?.trim();
           const normScore = isCorrect ? 1.0 : 0.0;
 
           for (const qs of skillsForQ) {
@@ -820,7 +874,7 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
               submissionId: sub.id,
               evidenceType: EvidenceType.QUESTION_RESULT,
               evaluatorType: EvaluatorType.AUTO,
-              observedValue: String(ans.responsePayload),
+              observedValue: String(submittedValue),
               normalizedScore: normScore,
               difficulty: question?.difficulty || 'MEDIUM',
               weight: qs.weight ?? 1.0,
@@ -901,7 +955,27 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
       }
 
       const item = itemMap.get(r.questionId);
-      const expectedMax = item?.points ?? 1.0;
+      let expectedMax = item?.points ?? 1.0;
+
+      // G02 fix: If the question is WRITING or SPEAKING, the frontend calculates maxScore
+      // from the rubric. We should do the same here to validate correctly instead of strictly
+      // comparing against the legacy item.points which might just be 1.0.
+      const question = await db.select().from(schema.questions).where(eq(schema.questions.id, r.questionId)).then(res => res[0]);
+      if (question && (question.type === 'WRITING' || question.type === 'SPEAKING')) {
+         let rubricMax = 0;
+         if (question.rubric) {
+           try {
+             const parsed = typeof question.rubric === 'string' ? JSON.parse(question.rubric) : question.rubric;
+             if (Array.isArray(parsed)) {
+               rubricMax = parsed.reduce((sum: number, c: any) => sum + (c.maxScore || 0), 0);
+             }
+           } catch (e) {}
+         }
+         if (rubricMax > 0) {
+           expectedMax = rubricMax;
+         }
+      }
+
       if (Math.abs(r.maxScore - expectedMax) > 0.001) {
         throw new BadRequestError(
           `Invalid maxScore for question ${r.questionId}: expected ${expectedMax}, got ${r.maxScore}`

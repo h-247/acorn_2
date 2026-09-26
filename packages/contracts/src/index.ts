@@ -300,7 +300,9 @@ export function findQuestionShapeFaults(q: QuestionShape): Array<{ path: string;
     ? q.options.map((o) => (typeof o === 'string' ? o.trim() : '')).filter(Boolean)
     : [];
 
-  if (q.type === QuestionType.MCQ) {
+  // A listening question is a multiple choice with audio behind it; the audio
+  // itself is checked where the database is reachable.
+  if (q.type === QuestionType.MCQ || q.type === QuestionType.LISTENING) {
     if (options.length < 2) {
       faults.push({ path: 'options', message: 'A multiple-choice question needs at least two options.' });
     }

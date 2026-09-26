@@ -196,31 +196,22 @@ describe('Security, Authorization, and Integrity Fixes', () => {
       },
     });
 
-    // 7. Create draft submission in Class B (status STARTED).
-    // On its own assignment: a learner gets one attempt per assignment, so the
-    // submitted one above and this draft cannot share a row.
-    const ASSIGNMENT_CLASS_B_DRAFT_ID = '88888888-9999-aaaa-bbbb-222222222222';
-    await db.insert(schema.assignments).values({
-      id: ASSIGNMENT_CLASS_B_DRAFT_ID,
-      assessmentId: ASSESSMENT_CLASS_B_ID,
-      classId: CLASS_IELTS_B_ID,
-      learnerId: SEED_IDS.studentEmma,
-      status: 'OPEN',
-    }).onConflictDoNothing();
-
+    // 7. Create draft submission in Class B (status STARTED) for a different learner
+    //    Emma already has a SUBMITTED row; unique constraint prevents two rows for same (assignment, learner).
     draftSubId = '88888888-9999-aaaa-bbbb-111111111111';
     await db.insert(schema.submissions).values({
       id: draftSubId,
-      assignmentId: ASSIGNMENT_CLASS_B_DRAFT_ID,
+      assignmentId: ASSIGNMENT_CLASS_B_ID,
       assessmentId: ASSESSMENT_CLASS_B_ID,
-      learnerId: SEED_IDS.studentEmma,
+      learnerId: SEED_IDS.studentLiam,
       status: SubmissionStatus.STARTED,
       maxPossibleScore: 10,
     }).onConflictDoUpdate({
       target: schema.submissions.id,
       set: {
         assessmentId: ASSESSMENT_CLASS_B_ID,
-        assignmentId: ASSIGNMENT_CLASS_B_DRAFT_ID,
+        assignmentId: ASSIGNMENT_CLASS_B_ID,
+        learnerId: SEED_IDS.studentLiam,
         status: SubmissionStatus.STARTED,
       },
     });
@@ -728,7 +719,7 @@ describe('Security, Authorization, and Integrity Fixes', () => {
       const res = await app.inject({
         method: 'POST',
         url: `/api/submissions/${draftSubId}/submit`,
-        headers: { authorization: `Bearer ${studentEmmaToken}` },
+        headers: { authorization: `Bearer ${studentLiamToken}` },
         payload: {
           submissionId: draftSubId,
           answers: [
@@ -876,7 +867,7 @@ describe('Security, Authorization, and Integrity Fixes', () => {
         method: 'POST',
         url: `/api/submissions/${draftSubId}/audio`,
         headers: {
-          authorization: `Bearer ${studentEmmaToken}`,
+          authorization: `Bearer ${studentLiamToken}`,
           'content-type': `multipart/form-data; boundary=${boundary}`,
         },
         payload,
@@ -904,7 +895,7 @@ describe('Security, Authorization, and Integrity Fixes', () => {
         method: 'POST',
         url: `/api/submissions/${draftSubId}/audio`,
         headers: {
-          authorization: `Bearer ${studentEmmaToken}`,
+          authorization: `Bearer ${studentLiamToken}`,
           'content-type': `multipart/form-data; boundary=${boundary}`,
         },
         payload,

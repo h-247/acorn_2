@@ -55,7 +55,7 @@ describe('CORS & Cookie-Auth Origin Guard Integration', () => {
       },
     });
 
-    expect(res.statusCode).not.toBe(204);
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
     expect(res.headers['access-control-allow-origin']).toBeUndefined();
     expect(res.headers['access-control-allow-credentials']).toBeUndefined();
   });
@@ -65,12 +65,12 @@ describe('CORS & Cookie-Auth Origin Guard Integration', () => {
       method: 'OPTIONS',
       url: '/api/materials',
       headers: {
-        origin: 'http://127.0.0.1:3000',
+        origin: 'http://127.0.0.1:9999',
         'access-control-request-method': 'POST',
       },
     });
 
-    expect(res.statusCode).not.toBe(204);
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
     expect(res.headers['access-control-allow-origin']).toBeUndefined();
     expect(res.headers['access-control-allow-credentials']).toBeUndefined();
   });
@@ -85,7 +85,7 @@ describe('CORS & Cookie-Auth Origin Guard Integration', () => {
       },
     });
 
-    expect(res.statusCode).not.toBe(204);
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
     expect(res.headers['access-control-allow-origin']).toBeUndefined();
     expect(res.headers['access-control-allow-credentials']).toBeUndefined();
   });

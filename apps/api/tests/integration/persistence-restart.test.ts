@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { buildApp } from '../../src/app.js';
 import { seed, SEED_IDS } from '../../src/infrastructure/persistence/seed.js';
 import { db } from '../../src/infrastructure/persistence/db.js';
@@ -7,6 +8,7 @@ import * as schema from '../../src/infrastructure/persistence/schema.js';
 import { eq } from 'drizzle-orm';
 import { generateToken } from '../../src/infrastructure/auth/auth.js';
 import { UserRole, CEFRLevel, MaterialType } from '@acorn/contracts';
+import { storage } from '../../src/infrastructure/object-storage/storage.js';
 
 describe('PostgreSQL Persistence Across API Boundary Restart', () => {
   let app: ReturnType<typeof buildApp>;
@@ -119,6 +121,58 @@ describe('PostgreSQL Persistence Across API Boundary Restart', () => {
     expect(updateRes.statusCode).toBe(200);
     const updatedMaterial = JSON.parse(updateRes.body);
     expect(updatedMaterial.title).toBe(`${uniqueTitle} (Post-Restart Verified)`);
+  });
+
+  it('preserves uploaded audio bytes and authorized playback URL across API restart', async () => {
+    const fixture = readFileSync(new URL('../../../web/e2e/fixtures/test-audio.mp3', import.meta.url));
+    const fileName = `restart-audio-${randomUUID()}.mp3`;
+    const boundary = `----AcornBoundary${randomUUID()}`;
+    const header = Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: audio/mpeg\r\n\r\n`
+    );
+    const footer = Buffer.from(`\r\n--${boundary}--\r\n`);
+
+    const uploadRes = await app.inject({
+      method: 'POST',
+      url: `/api/materials/${SEED_IDS.matUrbanFarming}/files`,
+      headers: {
+        authorization: `Bearer ${teacherToken}`,
+        'content-type': `multipart/form-data; boundary=${boundary}`,
+      },
+      payload: Buffer.concat([header, fixture, footer]),
+    });
+    expect(uploadRes.statusCode).toBe(201);
+    const uploaded = JSON.parse(uploadRes.body);
+    expect(uploaded.mimeType).toBe('audio/mpeg');
+    expect(uploaded.fileSize).toBe(fixture.length);
+
+    const [storedFile] = await db
+      .select()
+      .from(schema.materialFiles)
+      .where(eq(schema.materialFiles.id, uploaded.id));
+    expect(storedFile).toBeDefined();
+
+    await app.close();
+    app = buildApp();
+
+    const downloadRes = await app.inject({
+      method: 'GET',
+      url: `/api/materials/${SEED_IDS.matUrbanFarming}/files/${uploaded.id}/download`,
+      headers: { authorization: `Bearer ${teacherToken}` },
+    });
+    expect(downloadRes.statusCode).toBe(200);
+    const download = JSON.parse(downloadRes.body);
+    expect(download.mimeType).toBe('audio/mpeg');
+    expect(download.url).toContain('X-Amz-');
+
+    const persistedBytesResponse = await fetch(download.url);
+    expect(persistedBytesResponse.status).toBe(200);
+    expect(persistedBytesResponse.headers.get('content-type')).toContain('audio/mpeg');
+    const persistedBytes = Buffer.from(await persistedBytesResponse.arrayBuffer());
+    expect(persistedBytes.equals(fixture)).toBe(true);
+
+    await db.delete(schema.materialFiles).where(eq(schema.materialFiles.id, uploaded.id));
+    await storage.deleteObject(storedFile.fileKey);
   });
 
   it('persists curriculum course record across API app boundary restart and retains relational queryability', async () => {

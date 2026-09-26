@@ -33,7 +33,9 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
   // authored by hand broke the Material -> Question -> Evidence chain that
   // the evidence drill-down and the learner journey are read from.
   const [sourceMaterialId, setSourceMaterialId] = useState('');
-  const [materials, setMaterials] = useState<any[]>([]);
+
+  // MCQ specific
+  const [availableMaterials, setAvailableMaterials] = useState<any[]>([]);
 
   // MCQ specific
   const [options, setOptions] = useState<string[]>([
@@ -75,6 +77,8 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
     setErrorMessage(null);
     try {
       const skillsPromise = api.getSkills();
+      // The picker is optional, so a failed fetch must not take the form down
+      // with it, and the endpoint may answer with a page rather than an array.
       const materialsPromise = api.getMaterials().catch(() => []);
       const questionPromise = !isNew ? api.getQuestion(params.id) : Promise.resolve(null);
 
@@ -85,7 +89,7 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
       ]);
 
       setAvailableSkills(skills || []);
-      setMaterials(Array.isArray(mats) ? mats : (mats as any)?.items || []);
+      setAvailableMaterials(Array.isArray(mats) ? mats : (mats as any)?.items || []);
       if (skills && skills.length > 0) {
         setSelectedSkillId((prev) => prev || skills[0].id);
       }
@@ -99,6 +103,7 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
         setTopic(q.topic || '');
         setStatus(q.status || 'APPROVED');
         setUsageCount(q.usageCount || 0);
+        if (q.sourceMaterialId) setSourceMaterialId(q.sourceMaterialId);
         if (q.estimatedMinutes) setEstimatedMinutes(q.estimatedMinutes);
         if (q.options) setOptions(q.options);
         if (q.correctAnswer) setCorrectAnswer(q.correctAnswer);
@@ -148,16 +153,16 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
       }
 
       const payload: any = {
-        sourceMaterialId: sourceMaterialId || undefined,
         type,
         prompt,
         passage: passage || undefined,
         difficulty,
         level,
         status,
+        sourceMaterialId: sourceMaterialId || undefined,
         skills: skillPayload,
-        options: type === 'MCQ' ? options : undefined,
-        correctAnswer: type === 'MCQ' ? correctAnswer : undefined,
+        options: type === 'MCQ' || type === 'LISTENING' ? options : undefined,
+        correctAnswer: type === 'MCQ' || type === 'LISTENING' ? correctAnswer : undefined,
         rubric: parsedRubric,
       };
 
@@ -252,8 +257,8 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
                 rows={5}
               />
 
-              {/* 1. MCQ Options & Explanation */}
-              {type === 'MCQ' && (
+              {/* 1. MCQ & LISTENING Options & Explanation */}
+              {(type === 'MCQ' || type === 'LISTENING') && (
                 <div className="space-y-3 pt-2 border-t border-gray-100">
                   <label className="text-sm font-medium text-[#082051]">Options & Answers</label>
                   {options.map((opt, i) => (
@@ -369,16 +374,6 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
               <h3 className="text-sm font-bold text-[#082051]">Configuration</h3>
 
               <Select
-                label="Source Material (optional)"
-                value={sourceMaterialId}
-                onChange={(e) => setSourceMaterialId(e.target.value)}
-                options={[
-                  { label: '— Not from a material —', value: '' },
-                  ...materials.map((m: any) => ({ label: m.title, value: m.id })),
-                ]}
-              />
-
-              <Select
                 label="Primary Skill"
                 value={selectedSkillId}
                 onChange={(e) => setSelectedSkillId(e.target.value)}
@@ -395,9 +390,20 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
                 onChange={(e) => setType(e.target.value)}
                 options={[
                   { label: 'Multiple Choice (MCQ)', value: 'MCQ' },
+                  { label: 'Listening MCQ', value: 'LISTENING' },
                   { label: 'Short Answer', value: 'SHORT_ANSWER' },
                   { label: 'Writing Task', value: 'WRITING' },
                   { label: 'Speaking Task', value: 'SPEAKING' },
+                ]}
+              />
+
+              <Select
+                label="Source Material (Optional)"
+                value={sourceMaterialId}
+                onChange={(e) => setSourceMaterialId(e.target.value)}
+                options={[
+                  { label: 'None', value: '' },
+                  ...availableMaterials.map((m) => ({ label: m.title, value: m.id }))
                 ]}
               />
 
@@ -432,9 +438,9 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
                 onChange={(e) => setStatus(e.target.value)}
                 options={[
                   { label: 'Draft', value: 'DRAFT' },
-                  { label: 'In Review', value: 'IN_REVIEW' },
+                  { label: 'In Review', value: 'UNDER_REVIEW' },
                   { label: 'Approved', value: 'APPROVED' },
-                  { label: 'Retired', value: 'RETIRED' },
+                  { label: 'Archived', value: 'ARCHIVED' },
                 ]}
               />
 

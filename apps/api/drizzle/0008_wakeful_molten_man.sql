@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX IF NOT EXISTS "submissions_assignment_learner_uidx" ON "submissions" USING btree ("assignment_id","learner_id");

@@ -89,6 +89,7 @@ export const materialPlugin: FastifyPluginAsync = async (fastify) => {
     const allVersions = await db.select().from(schema.materialVersions);
     const allProv = await db.select().from(schema.materialProvenance);
     const allReleases = await db.select().from(schema.classMaterials);
+    const allFiles = await db.select().from(schema.materialFiles);
 
     return allMaterials.map((m) => {
       const skillObj = allSkills.find((s) => s.id === m.primarySkillId);
@@ -97,6 +98,7 @@ export const materialPlugin: FastifyPluginAsync = async (fastify) => {
       ) || allVersions.find((ver) => ver.materialId === m.id);
       const prov = allProv.find((p) => p.materialId === m.id);
       const releases = allReleases.filter((r) => r.materialId === m.id);
+      const mFiles = allFiles.filter((f) => f.materialId === m.id);
 
       return {
         ...m,
@@ -110,6 +112,13 @@ export const materialPlugin: FastifyPluginAsync = async (fastify) => {
         difficulty: m.difficulty || null,
         courseId: m.courseId || null,
         sharedWithClassesCount: releases.length,
+        files: mFiles.map((f) => ({
+          id: f.id,
+          fileName: f.fileName,
+          fileSize: f.fileSize,
+          mimeType: f.mimeType,
+          uploadedAt: f.uploadedAt.toISOString(),
+        })),
         provenance: prov
           ? {
               sourceMaterialId: prov.sourceMaterialId,
@@ -120,6 +129,7 @@ export const materialPlugin: FastifyPluginAsync = async (fastify) => {
       };
     });
   });
+
 
   // 2. Get material by ID
   fastify.get('/:id', { preHandler: [authenticate] }, async (request) => {

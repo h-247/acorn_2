@@ -1,0 +1,35 @@
+# The build context is the whole monorepo, so everything the image rebuilds for
+# itself is excluded. Without this the context carries node_modules and the pnpm
+# store, which is most of a gigabyte for no gain.
+node_modules
+**/node_modules
+.pnpm-store
+.pnpm-cache
+.pnpm-state
+.pnpm-bin
+.pnpm-global
+
+# Build output. The image produces its own.
+dist
+**/dist
+.next
+**/.next
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# Local state and secrets
+.env
+.env.*
+!.env.example
+
+.git
+.github
+.vscode
+.idea
+
+# Nothing the running service reads
+docs
+test-results
+playwright-report
+**/coverage
+*.log

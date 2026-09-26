@@ -162,6 +162,16 @@ export default function CreateMaterialPage() {
               />
 
               <Select
+                label="Primary Skill Focus"
+                value={skillId}
+                onChange={(e) => setSkillId(e.target.value)}
+                options={skills.map(s => ({
+                  label: `${s.area} • ${s.name}`,
+                  value: s.id
+                }))}
+              />
+
+              <Select
                 label="Associated Course (Optional)"
                 value={courseId}
                 onChange={(e) => setCourseId(e.target.value)}

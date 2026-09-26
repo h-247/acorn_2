@@ -58,6 +58,7 @@ async function findAssessmentFaults(assessmentId: string): Promise<string[]> {
       sequenceOrder: schema.assessmentItems.sequenceOrder,
       points: schema.assessmentItems.points,
       type: schema.questions.type,
+      sourceMaterialId: schema.questions.sourceMaterialId,
       prompt: schema.questions.prompt,
       options: schema.questions.options,
       correctAnswer: schema.questions.correctAnswer,
@@ -103,6 +104,31 @@ async function findAssessmentFaults(assessmentId: string): Promise<string[]> {
 
     if (!questionsWithSkill.has(item.questionId)) {
       faults.push(`${label} is not mapped to any skill, so it would produce no evidence.`);
+    }
+
+    // A listening question is only answerable if the learner can hear it.
+    if (item.type === QuestionType.LISTENING) {
+      if (!item.sourceMaterialId) {
+        faults.push(`${label} is a listening question with no source material to play.`);
+      } else {
+        const [material] = await db
+          .select({ id: schema.materials.id })
+          .from(schema.materials)
+          .where(eq(schema.materials.id, item.sourceMaterialId));
+
+        if (!material) {
+          faults.push(`${label} points at a source material that no longer exists.`);
+        } else {
+          const files = await db
+            .select({ mimeType: schema.materialFiles.mimeType })
+            .from(schema.materialFiles)
+            .where(eq(schema.materialFiles.materialId, item.sourceMaterialId));
+
+          if (!files.some((f) => f.mimeType.startsWith('audio/'))) {
+            faults.push(`${label} has a source material with no audio file attached.`);
+          }
+        }
+      }
     }
 
     if (!item.points || Number(item.points) <= 0) {
@@ -848,38 +874,67 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
        * never creates a second attempt: the learner keeps the work they have.
        */
       const upsertAssignment = async (classId: string | null, learnerId: string | null) => {
-        const [found] = await tx
-          .select()
-          .from(schema.assignments)
-          .where(
-            and(
-              eq(schema.assignments.assessmentId, id),
-              learnerId
-                ? eq(schema.assignments.learnerId, learnerId)
-                : and(
-                    eq(schema.assignments.classId, classId!),
-                    isNull(schema.assignments.learnerId)
-                  )
-            )
-          );
+        // Who this row is for, matched the same way the unique indexes are
+        // defined: a class-wide row has no learner, an individual row has no
+        // class.
+        const mine = and(
+          eq(schema.assignments.assessmentId, id),
+          eq(schema.assignments.status, 'OPEN'),
+          learnerId
+            ? eq(schema.assignments.learnerId, learnerId)
+            : and(
+                eq(schema.assignments.classId, classId!),
+                isNull(schema.assignments.learnerId)
+              )
+        );
 
-        if (found) {
-          if (body.dueAt !== undefined || found.status !== 'OPEN') {
-            const [refreshed] = await tx
-              .update(schema.assignments)
-              .set({ dueAt, status: 'OPEN' })
-              .where(eq(schema.assignments.id, found.id))
-              .returning();
-            return { assignment: refreshed, created: false };
-          }
-          return { assignment: found, created: false };
-        }
-
+        // Insert first and let the index settle the race. Selecting first and
+        // inserting after loses to a concurrent caller, which then fails on the
+        // unique index rather than sharing the row.
         const [created] = await tx
           .insert(schema.assignments)
           .values({ assessmentId: id, classId, learnerId, dueAt, status: 'OPEN' })
+          .onConflictDoNothing()
           .returning();
-        return { assignment: created, created: true };
+
+        if (created) return { assignment: created, created: true };
+
+        const [found] = await tx.select().from(schema.assignments).where(mine);
+        if (!found) {
+          // The only rows that can block the insert are ones this predicate
+          // finds, so reaching here means the row was closed between the two
+          // statements. Reopening it is what assigning again means.
+          const [reopened] = await tx
+            .update(schema.assignments)
+            .set({ dueAt, status: 'OPEN' })
+            .where(
+              and(
+                eq(schema.assignments.assessmentId, id),
+                learnerId
+                  ? eq(schema.assignments.learnerId, learnerId)
+                  : and(
+                      eq(schema.assignments.classId, classId!),
+                      isNull(schema.assignments.learnerId)
+                    )
+              )
+            )
+            .returning();
+          return { assignment: reopened, created: false };
+        }
+
+        // Re-assigning is how a teacher moves a deadline, so a second call
+        // with a new dueAt updates the row rather than being ignored. It never
+        // creates a second attempt: the learner keeps the work they have.
+        if (body.dueAt !== undefined) {
+          const [refreshed] = await tx
+            .update(schema.assignments)
+            .set({ dueAt })
+            .where(eq(schema.assignments.id, found.id))
+            .returning();
+          return { assignment: refreshed, created: false };
+        }
+
+        return { assignment: found, created: false };
       };
 
       /** One attempt per learner, so a retry of this call changes nothing. */
@@ -902,10 +957,12 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
       const recipients: string[] = [];
 
       if (isIndividual) {
-        // One assignment each. The class, when given, rides along as context
-        // for the teacher's own views; it does not widen the audience.
+        // One assignment each, and no class on the row: a class named here
+        // only scopes who may be picked. Storing it would collide with the
+        // unique index on (assessment_id, class_id) for a second learner in
+        // the same class.
         for (const learnerId of namedLearnerIds) {
-          const { assignment } = await upsertAssignment(body.classId || null, learnerId);
+          const { assignment } = await upsertAssignment(null, learnerId);
           await ensureSubmission(assignment.id, learnerId);
           assignments.push(assignment);
           recipients.push(learnerId);
@@ -924,20 +981,24 @@ export const assessmentPlugin: FastifyPluginAsync = async (fastify) => {
         assignments.push(assignment);
       }
 
-      await tx.insert(schema.auditEvents).values({
-        actorId: request.user!.id,
-        actorRole: request.user!.role,
-        action: 'ASSESSMENT_ASSIGNED',
-        entityType: 'ASSIGNMENT',
-        entityId: assignments[0].id,
-        metadata: {
-          classId: body.classId ?? null,
-          scope: isIndividual ? 'LEARNERS' : 'CLASS',
-          learnerIds: isIndividual ? namedLearnerIds : undefined,
-          learnersCount: recipients.length,
-          dueAt: dueAt ? dueAt.toISOString() : null,
-        },
-      });
+      // One event per assignment, so a learner's trail names their own row
+      // rather than the first one in the batch.
+      for (const assignment of assignments) {
+        await tx.insert(schema.auditEvents).values({
+          actorId: request.user!.id,
+          actorRole: request.user!.role,
+          action: 'ASSESSMENT_ASSIGNED',
+          entityType: 'ASSIGNMENT',
+          entityId: assignment.id,
+          metadata: {
+            classId: assignment.classId,
+            learnerId: assignment.learnerId,
+            scope: isIndividual ? 'LEARNERS' : 'CLASS',
+            learnersCount: recipients.length,
+            dueAt: dueAt ? dueAt.toISOString() : null,
+          },
+        });
+      }
 
       return { assignments, learnersAssigned: recipients.length };
     });

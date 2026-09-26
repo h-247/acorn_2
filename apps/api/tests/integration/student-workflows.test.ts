@@ -62,23 +62,21 @@ describe('Student Workflow & Feature Integrity', () => {
       role: UserRole.TEACHER,
     });
 
-    // Create an active (STARTED) submission for Emma to test in-progress
-    // features. It needs its own assignment: the seed already gives her one
-    // on assignmentReading03, and a learner gets one attempt per assignment.
-    const [ownAssignment] = await db
-      .insert(schema.assignments)
-      .values({
-        assessmentId: SEED_IDS.assessmentReading03,
-        classId: SEED_IDS.classIeltsA,
-        learnerId: SEED_IDS.studentEmma,
-        status: 'OPEN',
-      })
-      .returning();
+    // Create a separate assignment for Emma's active submission to avoid unique constraint
+    const emmaActiveAssignmentId = '77777777-0000-0000-0000-000000000001';
+    await db.insert(schema.assignments).values({
+      id: emmaActiveAssignmentId,
+      assessmentId: SEED_IDS.assessmentReading03,
+      classId: null,
+      learnerId: SEED_IDS.studentEmma,
+      status: 'OPEN',
+    }).onConflictDoNothing();
 
+    // Create an active (STARTED) submission for Emma to test in-progress features
     const [created] = await db
       .insert(schema.submissions)
       .values({
-        assignmentId: ownAssignment.id,
+        assignmentId: emmaActiveAssignmentId,
         assessmentId: SEED_IDS.assessmentReading03,
         learnerId: SEED_IDS.studentEmma,
         status: SubmissionStatus.STARTED,
@@ -113,22 +111,18 @@ describe('Student Workflow & Feature Integrity', () => {
       points: 10,
     }).onConflictDoNothing();
 
-    // Its own assignment, for its own assessment: borrowing the reading
-    // assignment pointed the submission at a paper the assignment was not for.
-    const [speakingAssignment] = await db
-      .insert(schema.assignments)
-      .values({
-        assessmentId: speakingAssessmentId,
-        classId: SEED_IDS.classIeltsA,
-        learnerId: SEED_IDS.studentEmma,
-        status: 'OPEN',
-      })
-      .returning();
+    const speakingAssignmentId = '77777777-7777-7777-7777-777777777702';
+    await db.insert(schema.assignments).values({
+      id: speakingAssignmentId,
+      assessmentId: speakingAssessmentId,
+      classId: SEED_IDS.classIeltsA,
+      status: 'OPEN',
+    }).onConflictDoNothing();
 
     const [speakingCreated] = await db
       .insert(schema.submissions)
       .values({
-        assignmentId: speakingAssignment.id,
+        assignmentId: speakingAssignmentId,
         assessmentId: speakingAssessmentId,
         learnerId: SEED_IDS.studentEmma,
         status: SubmissionStatus.STARTED,
@@ -184,7 +178,7 @@ describe('Student Workflow & Feature Integrity', () => {
         authorization: `Bearer ${studentEmmaToken}`,
       },
     });
-
+    if (res.statusCode !== 200) console.error('STUDENT_PREVIEW_ERROR:', res.body);
     expect(res.statusCode).toBe(200);
     const sub = JSON.parse(res.body);
     expect(sub.id).toBe(activeSubmissionId);

@@ -208,12 +208,14 @@ export const api = {
   getSubmissions: (query?: string) =>
     request<any[]>(`/submissions${query ? `?${query}` : ''}`),
   getSubmission: (id: string) => request<any>(`/submissions/${id}`),
+  beginSubmission: (id: string) =>
+    request<any>(`/submissions/${id}/begin`, { method: 'POST' }),
   autosave: (id: string, data: any) =>
     request<any>(`/submissions/${id}/autosave`, { method: 'POST', body: JSON.stringify(data) }),
   uploadSubmissionAudio: async (submissionId: string, questionId: string, file: Blob | File) => {
     const formData = new FormData();
-    formData.append('file', file, (file as any).name || 'recording.webm');
     formData.append('questionId', questionId);
+    formData.append('file', file, (file as any).name || 'recording.webm');
     const res = await fetch(`${API_BASE}/submissions/${submissionId}/audio`, {
       method: 'POST',
       body: formData,

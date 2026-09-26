@@ -43,6 +43,7 @@ export default function EvidenceExplorerPage({ params }: { params: { id: string 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+
   const loadEvidence = useCallback(async () => {
     setLoading(true);
     setError(null);
