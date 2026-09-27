@@ -11,6 +11,7 @@
     "test": "pnpm --filter @acorn/contracts build && pnpm --filter @acorn/api test",
     "db:seed": "pnpm --filter @acorn/api db:seed",
     "db:reset": "pnpm --filter @acorn/api db:reset",
+    "demo:prepare-listening": "pnpm --filter @acorn/api demo:prepare-listening",
     "check-structure": "./scripts/check-structure.sh",
     "typecheck": "pnpm -r typecheck"
   },

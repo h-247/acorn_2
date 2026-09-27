@@ -97,7 +97,28 @@ All demo accounts are pre-seeded with password `password123`:
 | **Teacher** | `taylor@acorn.edu` | `password123` | Dashboard, Material Authoring/Adaptation, Question Bank, Assessment Builder, Submissions Evaluation, Evidence Explorer, Recommendation Workspace |
 | **Student** | `emma.nguyen@student.acorn.edu` (or `emma@acorn.edu`) | `password123` | Student Portal, Assigned Assessments, Split-Screen Assessment Player, Progress Snapshot |
 | **Admin** | `admin@acorn.edu` | `admin123` | User Management, Class & Course Management, Skills Taxonomy, Pilot Metrics |
-| **Manager** | `manager@acorn.edu` | `manager123` | Curriculum Oversight & Class Approvals |
+
+## Dữ liệu diễn tập bảo vệ bốn kỹ năng
+
+Sau khi chạy migration, nạp lại bộ dữ liệu demo bằng:
+
+```powershell
+pnpm --filter @acorn/api db:seed
+```
+
+Seed chạy lặp được: các ID cố định được cập nhật tại chỗ và không tạo thêm submission, evidence hoặc audit event trùng lặp.
+
+| Vai trò / tài khoản | Dữ liệu chuẩn bị sẵn để trình diễn |
+| :--- | :--- |
+| Admin — `admin@acorn.edu` / `admin123` | Course, lớp, 10 học viên, taxonomy và audit trail của luồng demo. |
+| Teacher — `taylor@acorn.edu` / `password123` | Bốn assessment đã publish, assignment đang mở; Liam có bài Writing chờ chấm; các bài Writing của Emma, Speaking của Sofia và Listening của Noah đã có kết quả/evidence để xem review, learner state và recommendation. |
+| Emma — `emma.nguyen@student.acorn.edu` / `password123` | Đã hoàn thành Reading và Writing; xem feedback, tiến độ và recommendation Reading. |
+| Liam — `liam.chen@student.acorn.edu` / `password123` | Writing đã nộp, chờ giáo viên rubric grading. |
+| Sofia — `sofia.rodriguez@student.acorn.edu` / `password123` | Speaking đã được giáo viên chấm rubric; dữ liệu seed chỉ lưu transcript/rubric, không giả mạo file ghi âm. |
+| Noah — `noah.dubois@student.acorn.edu` / `password123` | Listening đã được auto-grade sai một câu và có recommendation luyện nghe. |
+| Lucas — `lucas.kim@student.acorn.edu` / `password123` | Listening đang làm, có đáp án autosave nhưng chưa nộp. |
+
+Listening có hàng metadata `audio/mpeg` trong database để assessment hợp lệ về quan hệ dữ liệu. File seed không tự tạo một object MP3 rỗng trong object storage vì URL ký cho object đó sẽ không phát được. Khi cần trình diễn phát âm thanh thật, chạy browser E2E `pnpm --filter @acorn/web test:e2e`; kịch bản này upload fixture MP3 thật vào bucket `acorn-test` và kiểm tra playback có ủy quyền.
 
 ## Testing & Verification
 

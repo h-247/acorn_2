@@ -34,6 +34,9 @@ pnpm --filter @acorn/api db:migrate
 
 # 5. Seed the demo database
 pnpm --filter @acorn/api db:seed
+
+# 6. Upload the real Listening MP3 used by the seeded Listening assessment
+pnpm demo:prepare-listening
 ```
 
 ---
@@ -69,6 +72,9 @@ Seed the demo data once the stack is healthy:
 
 ```bash
 docker compose -f compose.dev.yml exec api pnpm db:seed
+
+# Upload the repository fixture so the seeded Listening player can decode it.
+docker compose -f compose.dev.yml exec api pnpm demo:prepare-listening
 ```
 
 To stop it and keep the data:
@@ -116,6 +122,11 @@ docker compose -f compose.dev.yml --profile app down
 > **Note:** Audio upload requires a microphone. In a headless environment, upload a `.webm` or `.ogg` file manually via the file input that appears when `Record` is not available.
 
 ### Flow D – Listening (linked material audio + auto-graded MCQ)
+
+Before this flow, run `pnpm demo:prepare-listening` after seeding. It uploads
+the included MP3 fixture to the local `acorn-dev` bucket and updates only the
+deterministic Listening file row. The command refuses production, test, and
+non-demo database/bucket targets.
 
 1. **Admin / Teacher** → upload a material of type `AUDIO` (via `/materials/new`) → approve the material.
 2. Create a `LISTENING` question → in the **Source Material** dropdown → link the audio material → add MCQ options and a correct answer → include in assessment → publish → assign.

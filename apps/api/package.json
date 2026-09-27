@@ -14,6 +14,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx src/infrastructure/persistence/seed.ts",
     "db:reset": "tsx src/infrastructure/persistence/reset-db.ts",
+    "demo:prepare-listening": "tsx scripts/prepare-demo-listening-audio.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
