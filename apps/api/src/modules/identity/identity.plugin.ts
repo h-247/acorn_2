@@ -28,6 +28,11 @@ const ResetPasswordSchema = z.object({
   newPassword: z.string().min(6),
 });
 
+function sessionCookie(value: string, maxAge: number) {
+  const sameSite = process.env.NODE_ENV === 'production' ? 'SameSite=None; Secure' : 'SameSite=Lax';
+  return `acorn_token=${value}; Path=/; HttpOnly; ${sameSite}; Max-Age=${maxAge}`;
+}
+
 const UserQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(10),
@@ -76,7 +81,7 @@ export const identityPlugin: FastifyPluginAsync = async (fastify) => {
     // Set HTTP-only session cookie
     reply.header(
       'Set-Cookie',
-      `acorn_token=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`
+      sessionCookie(encodeURIComponent(token), 86400)
     );
 
     return {
@@ -95,7 +100,7 @@ export const identityPlugin: FastifyPluginAsync = async (fastify) => {
   fastify.post('/logout', async (request, reply) => {
     reply.header(
       'Set-Cookie',
-      `acorn_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
+      sessionCookie('', 0)
     );
     return { success: true };
   });
