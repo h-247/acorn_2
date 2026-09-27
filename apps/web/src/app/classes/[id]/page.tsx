@@ -12,18 +12,24 @@ import {
   ErrorState,
 } from '@acorn/ui';
 import { Users, Send, ArrowRight, BookOpen } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, getStoredUser } from '@/lib/api';
 
 export default function ClassWorkspacePage({ params }: { params: { id: string } }) {
   const [cls, setCls] = useState<any | null>(null);
+  const [currentUser, setCurrentUser] = useState<any | null>(() => getStoredUser());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const isAdmin = currentUser?.role === 'ADMIN';
+  const roleMode = isAdmin ? 'ADMIN' : 'TEACHER';
+  const classesHref = isAdmin ? '/admin?tab=classes' : '/classes';
 
   const loadClass = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.getClass(params.id);
+      const [me, data] = await Promise.all([api.getMe(), api.getClass(params.id)]);
+      setCurrentUser(me);
       setCls(data);
     } catch (err: any) {
       setError(err.message || 'Failed to load class workspace');
@@ -38,7 +44,7 @@ export default function ClassWorkspacePage({ params }: { params: { id: string } 
 
   if (loading) {
     return (
-      <AppShell currentPath="/classes" roleMode="TEACHER">
+      <AppShell currentPath={classesHref} userName={currentUser?.name} userRole={isAdmin ? 'Administrator' : 'Teacher'} roleMode={roleMode}>
         <div className="p-12 text-center text-sm text-[#656C79]">Loading class workspace...</div>
       </AppShell>
     );
@@ -46,7 +52,7 @@ export default function ClassWorkspacePage({ params }: { params: { id: string } 
 
   if (error || !cls) {
     return (
-      <AppShell currentPath="/classes" roleMode="TEACHER">
+      <AppShell currentPath={classesHref} userName={currentUser?.name} userRole={isAdmin ? 'Administrator' : 'Teacher'} roleMode={roleMode}>
         <div className="p-6 max-w-xl mx-auto">
           <ErrorState
             title="Unable to load class workspace"
@@ -59,11 +65,11 @@ export default function ClassWorkspacePage({ params }: { params: { id: string } 
   }
 
   return (
-    <AppShell currentPath="/classes" roleMode="TEACHER">
+    <AppShell currentPath={classesHref} userName={currentUser?.name} userRole={isAdmin ? 'Administrator' : 'Teacher'} roleMode={roleMode}>
       <div className="space-y-6">
         <EntityHeader
           breadcrumbs={[
-            { label: 'Classes', href: '/classes' },
+            { label: 'Classes', href: classesHref },
             { label: cls.name },
           ]}
           title={cls.name}
