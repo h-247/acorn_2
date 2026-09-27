@@ -1,0 +1,4 @@
+{
+  "buildCommand": "cd ../.. && pnpm --filter @acorn/contracts build && pnpm --filter @acorn/ui build && pnpm --filter @acorn/web build",
+  "framework": "nextjs"
+}

@@ -38,3 +38,5 @@ playwright/.cache/
 
 # local dev logs
 *.log
+.vercel
+.env*
