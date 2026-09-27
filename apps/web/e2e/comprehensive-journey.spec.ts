@@ -132,8 +132,8 @@ test.describe('Comprehensive Multi-Skill Journey (Reading, Writing, Speaking, Li
       data: { title: 'Bad Assessment', level: 'B1', questionIds: [qListenBadId] },
     });
     const badAId = (await badARes.json()).id;
-    const badPubRes = await request.put(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/assessments/${badAId}/publish`, { headers: adminH });
-    expect(badPubRes.status()).toBe(400);
+    const badReadyRes = await request.put(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/assessments/${badAId}/ready`, { headers: adminH });
+    expect(badReadyRes.status()).toBe(400);
 
     const aRes = await request.post(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/assessments`, {
       headers: adminH,
@@ -142,6 +142,8 @@ test.describe('Comprehensive Multi-Skill Journey (Reading, Writing, Speaking, Li
     expect(aRes.status()).toBe(201);
     const aId = (await aRes.json()).id as string;
 
+    const readyRes = await request.put(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/assessments/${aId}/ready`, { headers: adminH });
+    expect(readyRes.status()).toBe(200);
     const pubRes = await request.put(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/assessments/${aId}/publish`, { headers: adminH });
     expect(pubRes.status()).toBe(200);
 

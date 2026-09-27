@@ -16,17 +16,21 @@ async function provision() {
 
   try {
     const res = await pool.query(`SELECT 1 FROM pg_database WHERE datname = 'acorn_test'`);
-    if (res.rowCount === 0) {
-      console.log('[provision] Creating database acorn_test...');
-      await pool.query(`CREATE DATABASE acorn_test`);
+    if (res.rowCount !== 0) {
+      console.log('[provision] Recreating database acorn_test...');
+      // A schema-only reset can leave PostgreSQL composite types behind when a
+      // prior migration was interrupted. Recreate the dedicated test database
+      // instead, so every migration run starts from an actually empty catalog.
+      await pool.query(`
+        SELECT pg_terminate_backend(pid)
+        FROM pg_stat_activity
+        WHERE datname = 'acorn_test' AND pid <> pg_backend_pid()
+      `);
+      await pool.query('DROP DATABASE acorn_test');
     } else {
-      console.log('[provision] Database acorn_test already exists. Recreating public schema...');
-      // Connect to acorn_test and recreate public schema
-      const testDbUrl = config.databaseUrl.replace(/\/[^/?#]+([?#]|$)/, '/acorn_test$1');
-      const testPool = new pg.Pool({ connectionString: testDbUrl });
-      await testPool.query('DROP SCHEMA IF EXISTS drizzle CASCADE; DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
-      await testPool.end();
+      console.log('[provision] Creating database acorn_test...');
     }
+    await pool.query('CREATE DATABASE acorn_test');
   } catch (err) {
     console.error('[provision] Failed to provision database:', err);
     throw err;

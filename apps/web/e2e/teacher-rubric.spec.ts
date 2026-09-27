@@ -48,7 +48,11 @@ test.describe('Teacher Rubric Review', () => {
     expect(aRes.status()).toBe(201);
     const aId = (await aRes.json()).id;
 
-    // 5. Publish Assessment
+    // 5. Validate then publish Assessment
+    const readyRes = await request.put(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/assessments/${aId}/ready`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    expect(readyRes.status()).toBe(200);
     const pubRes = await request.put(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/assessments/${aId}/publish`, {
       headers: { Authorization: `Bearer ${token}` }
     });
@@ -157,7 +161,11 @@ test.describe('Teacher Rubric Review', () => {
     expect(aRes.status()).toBe(201);
     const aId = (await aRes.json()).id;
 
-    // 5. Publish Assessment
+    // 5. Validate then publish Assessment
+    const readyRes = await request.put(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/assessments/${aId}/ready`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    expect(readyRes.status()).toBe(200);
     const pubRes = await request.put(`${process.env.API_BASE_URL || 'http://localhost:4100'}/api/assessments/${aId}/publish`, {
       headers: { Authorization: `Bearer ${token}` }
     });
