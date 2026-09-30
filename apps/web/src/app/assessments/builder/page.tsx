@@ -140,7 +140,7 @@ function AssessmentBuilderForm() {
     setSelectedQIds(reordered);
   };
 
-  const handleCreate = async () => {
+  const handleCreate = async (targetStatus: 'DRAFT' | 'PUBLISHED' = 'PUBLISHED') => {
     if (selectedQIds.length === 0) {
       setErrorMessage('Please select at least 1 question for the assessment.');
       return;
@@ -148,6 +148,14 @@ function AssessmentBuilderForm() {
     setSaving(true);
     setErrorMessage(null);
     try {
+      const computedItemPoints: Record<string, number> = {};
+      for (const qId of selectedQIds) {
+        const q = questions.find((item) => item.id === qId);
+        if (q) {
+          computedItemPoints[qId] = pointsFor(q);
+        }
+      }
+
       const payload = {
         title,
         description,
@@ -155,21 +163,14 @@ function AssessmentBuilderForm() {
         level,
         timeLimitMinutes: Number(timeLimit),
         questionIds: selectedQIds,
-        itemPoints,
+        itemPoints: computedItemPoints,
       };
 
       const res = draftId
         ? await api.updateAssessment(draftId, payload)
         : await api.createAssessment(payload);
 
-      if (initialStatus === 'PUBLISHED') {
-        // The lifecycle is DRAFT -> READY -> PUBLISHED, so publishing from the
-        // builder is two calls. The readiness check runs in the first one and
-        // is where an incomplete paper is turned back.
-        //
-        // Swallowing either failure left the teacher on the assessment page
-        // believing it was published when it was still a draft - and nothing
-        // on that page says otherwise loudly enough to catch.
+      if (targetStatus === 'PUBLISHED') {
         try {
           await api.markAssessmentReady(res.id);
         } catch (readyErr: any) {
@@ -266,13 +267,21 @@ function AssessmentBuilderForm() {
                 Preview as Student
               </Button>
               <Button
+                variant="outline"
+                size="md"
+                loading={saving}
+                onClick={() => handleCreate('DRAFT')}
+              >
+                Save Draft
+              </Button>
+              <Button
                 variant="primary"
                 size="md"
                 loading={saving}
-                onClick={handleCreate}
+                onClick={() => handleCreate('PUBLISHED')}
                 icon={<Check className="w-4 h-4" />}
               >
-                {initialStatus === 'PUBLISHED' ? 'Publish Assessment' : 'Save Draft'}
+                Publish Assessment
               </Button>
             </div>
           }

@@ -763,13 +763,27 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
         let normalizedScore: number | null = null;
         let rawScore: number | null = null;
 
-        if ((question?.type === 'MCQ' || question?.type === 'LISTENING') && question.correctAnswer) {
+        if (
+          (question?.type === 'MCQ' ||
+            question?.type === 'LISTENING' ||
+            question?.type === 'SHORT_ANSWER') &&
+          question.correctAnswer
+        ) {
           autoGradableCount++;
           let submittedValue = ans.responsePayload;
-          if (typeof submittedValue === 'object' && submittedValue !== null && 'answer' in submittedValue) {
-            submittedValue = (submittedValue as any).answer;
+          if (typeof submittedValue === 'object' && submittedValue !== null) {
+            if ('text' in submittedValue) {
+              submittedValue = (submittedValue as any).text;
+            } else if ('answer' in submittedValue) {
+              submittedValue = (submittedValue as any).answer;
+            }
           }
-          isCorrect = String(submittedValue).trim() === question.correctAnswer.trim();
+          const targetAnswer = question.correctAnswer.trim();
+          const studentAnswer = String(submittedValue ?? '').trim();
+          isCorrect =
+            question.type === 'SHORT_ANSWER'
+              ? studentAnswer.toLowerCase() === targetAnswer.toLowerCase()
+              : studentAnswer === targetAnswer;
           normalizedScore = isCorrect ? 1.0 : 0.0;
           rawScore = isCorrect ? itemPoints : 0;
           totalEarnedPoints += rawScore;
@@ -824,7 +838,10 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
       }
 
 
-      const isFullyAutoGraded = autoGradableCount === items.length && items.length > 0;
+      const allItemsAutoGradable = questions.length === items.length && items.length > 0 && questions.every(
+        (q) => (q.type === 'MCQ' || q.type === 'LISTENING' || q.type === 'SHORT_ANSWER') && Boolean(q.correctAnswer)
+      );
+      const isFullyAutoGraded = allItemsAutoGradable;
       const overallScore = isFullyAutoGraded
         ? Math.round((totalEarnedPoints / totalMaxPoints) * 100)
         : null;
@@ -855,10 +872,19 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
           const skillsForQ = qSkills.filter((qs) => qs.questionId === ans.questionId);
 
           let submittedValue = ans.responsePayload;
-          if (typeof submittedValue === 'object' && submittedValue !== null && 'answer' in submittedValue) {
-            submittedValue = (submittedValue as any).answer;
+          if (typeof submittedValue === 'object' && submittedValue !== null) {
+            if ('text' in submittedValue) {
+              submittedValue = (submittedValue as any).text;
+            } else if ('answer' in submittedValue) {
+              submittedValue = (submittedValue as any).answer;
+            }
           }
-          const isCorrect = String(submittedValue).trim() === question?.correctAnswer?.trim();
+          const targetAnswer = question?.correctAnswer?.trim() ?? '';
+          const studentAnswer = String(submittedValue ?? '').trim();
+          const isCorrect =
+            question?.type === 'SHORT_ANSWER'
+              ? studentAnswer.toLowerCase() === targetAnswer.toLowerCase()
+              : studentAnswer === targetAnswer;
           const normScore = isCorrect ? 1.0 : 0.0;
 
           for (const qs of skillsForQ) {
@@ -973,6 +999,10 @@ export const submissionPlugin: FastifyPluginAsync = async (fastify) => {
          }
          if (rubricMax > 0) {
            expectedMax = rubricMax;
+         } else if (item?.points && item.points !== 1.0) {
+           expectedMax = item.points;
+         } else {
+           expectedMax = 80;
          }
       }
 

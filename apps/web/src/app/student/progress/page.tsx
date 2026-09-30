@@ -33,10 +33,10 @@ export default function StudentProgressPage() {
       if (!currentUser?.id) throw new Error('Please sign in again to view your progress.');
       const [prof, evs] = await Promise.all([
         api.getLearnerProfile(currentUser.id),
-        api.getEvidence().catch(() => []),
+        api.getEvidence(`learnerId=${currentUser.id}&limit=100`).catch(() => []),
       ]);
       setProfile(prof);
-      setEvidenceList(evs || []);
+      setEvidenceList(Array.isArray(evs) ? evs : (evs as any)?.items || []);
     } catch (err: any) {
       setError(err.message || 'Failed to load learning progress');
     } finally {

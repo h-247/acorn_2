@@ -47,11 +47,15 @@ export default function StudentAssessmentsListPage() {
   const userName = user?.name || 'Student';
 
   const activeSubmissions = submissions.filter(
-    (s) => s.status === 'STARTED' || s.status === 'IN_PROGRESS'
+    (s) => (s.status === 'STARTED' || s.status === 'IN_PROGRESS') && !s.isClosed
   );
 
   const completedSubmissions = submissions.filter(
-    (s) => s.status === 'SUBMITTED' || s.status === 'EVALUATED'
+    (s) =>
+      s.status === 'SUBMITTED' ||
+      s.status === 'EVALUATING' ||
+      s.status === 'EVALUATED' ||
+      (s.isClosed && (s.status === 'STARTED' || s.status === 'IN_PROGRESS'))
   );
 
   return (
@@ -92,9 +96,10 @@ export default function StudentAssessmentsListPage() {
               {activeSubmissions.length > 0 ? (
                 <div className="space-y-3">
                   {activeSubmissions.map((sub) => {
-                    const isOverdue = sub.dueAt && new Date(sub.dueAt).getTime() < Date.now();
+                    const hasValidDueAt = sub.dueAt && !isNaN(new Date(sub.dueAt).getTime());
+                    const isOverdue = hasValidDueAt && new Date(sub.dueAt).getTime() < Date.now();
                     const isDueSoon =
-                      sub.dueAt &&
+                      hasValidDueAt &&
                       !isOverdue &&
                       new Date(sub.dueAt).getTime() - Date.now() < 24 * 3600 * 1000;
 

@@ -102,10 +102,12 @@ export default function SubmissionReviewPage({ params }: { params: { id: string 
 
           const rubric = r?.rubricScores || defaultRubricScores;
           const raw = Object.values(rubric).reduce((a: number, b: any) => a + Number(b), 0);
+          const computedRaw = r?.rawScore ?? raw;
+          const computedCorrect = r?.isCorrect ?? (maxScore > 0 ? computedRaw >= maxScore * 0.7 : computedRaw > 0);
           initialEvals[qId] = {
-            rawScore: r?.rawScore ?? raw,
+            rawScore: computedRaw,
             maxScore,
-            isCorrect: r?.isCorrect ?? true,
+            isCorrect: computedCorrect,
             rubricScores: rubric,
             teacherFeedback: r?.teacherFeedback || '',
           };
@@ -176,6 +178,7 @@ export default function SubmissionReviewPage({ params }: { params: { id: string 
           ...current,
           rubricScores: newRubrics,
           rawScore: newRaw,
+          isCorrect: newRaw >= current.maxScore * 0.7,
         },
       };
     });
@@ -585,6 +588,7 @@ export default function SubmissionReviewPage({ params }: { params: { id: string 
                                   [qId]: {
                                     ...prev[qId],
                                     isCorrect: e.target.checked,
+                                    rawScore: e.target.checked ? (prev[qId]?.maxScore ?? 1) : 0,
                                   },
                                 }))
                               }

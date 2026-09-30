@@ -392,6 +392,22 @@ export const materialPlugin: FastifyPluginAsync = async (fastify) => {
         notes: body.adaptationReason,
       });
 
+      const existingFiles = await tx
+        .select()
+        .from(schema.materialFiles)
+        .where(eq(schema.materialFiles.materialId, sourceMat.id));
+
+      for (const file of existingFiles) {
+        await tx.insert(schema.materialFiles).values({
+          materialId: adapted.id,
+          fileName: file.fileName,
+          fileKey: file.fileKey,
+          fileSize: file.fileSize,
+          mimeType: file.mimeType,
+          uploadedBy: userId,
+        });
+      }
+
       await tx.insert(schema.auditEvents).values({
         actorId: userId,
         actorRole: request.user!.role,

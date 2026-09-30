@@ -502,9 +502,15 @@ export const coursePlugin: FastifyPluginAsync = async (fastify) => {
     return reply.status(201).send(enrollment || { classId: id, learnerId, message: 'Already enrolled' });
   });
 
-  // Admin: Unenroll Learner
-  fastify.delete('/classes/:id/enroll/:learnerId', { preHandler: [authenticate, requireRole([UserRole.ADMIN])] }, async (request) => {
+  // Admin / Teacher: Unenroll Learner
+  fastify.delete('/classes/:id/enroll/:learnerId', { preHandler: [authenticate, requireRole([UserRole.ADMIN, UserRole.TEACHER])] }, async (request) => {
     const { id, learnerId } = request.params as { id: string; learnerId: string };
+    const user = request.user!;
+    const [cls] = await db.select().from(schema.classes).where(eq(schema.classes.id, id));
+    if (!cls) throw new NotFoundError('Class not found');
+    if (user.role === UserRole.TEACHER && cls.teacherId !== user.id) {
+      throw new ForbiddenError('You can only unenroll students from your own classes');
+    }
     await db
       .delete(schema.classEnrollments)
       .where(and(eq(schema.classEnrollments.classId, id), eq(schema.classEnrollments.learnerId, learnerId)));

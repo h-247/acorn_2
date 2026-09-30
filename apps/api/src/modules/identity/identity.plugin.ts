@@ -248,9 +248,17 @@ export const identityPlugin: FastifyPluginAsync = async (fastify) => {
     const { id } = request.params as { id: string };
     const body = UpdateUserSchema.parse(request.body);
 
+    const [existing] = await db.select().from(schema.users).where(eq(schema.users.id, id));
+    if (!existing) throw new NotFoundError('User not found');
+
+    const updatePayload: any = { ...body };
+    if (body.isActive === false && existing.isActive !== false) {
+      updatePayload.tokenVersion = (existing.tokenVersion || 1) + 1;
+    }
+
     const [updated] = await db
       .update(schema.users)
-      .set(body)
+      .set(updatePayload)
       .where(eq(schema.users.id, id))
       .returning({
         id: schema.users.id,

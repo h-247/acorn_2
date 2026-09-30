@@ -48,6 +48,9 @@ export default function RecommendationWorkspacePage({ params }: { params: { id: 
       setClasses(clsList || []);
       setMaterials(matList || []);
       setAssessments(assList || []);
+      if (recData?.candidates?.[0]?.materialId) {
+        setSelectedMaterialId((prev) => prev || recData.candidates[0].materialId);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to load recommendation workspace');
     } finally {
@@ -139,7 +142,7 @@ export default function RecommendationWorkspacePage({ params }: { params: { id: 
         assessmentId: selectedAssessmentId || undefined,
         activityTitle: activityText || 'Recommended Practice Activity',
         instructions: activityText,
-        dueAt: dueAt ? new Date(dueAt).toISOString() : undefined,
+        dueAt: dueAt && !isNaN(new Date(dueAt).getTime()) ? new Date(dueAt).toISOString() : undefined,
       });
       setIsActivityModalOpen(false);
       setMessage(`Next activity assigned and scheduled separately from recommendation review.`);

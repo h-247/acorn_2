@@ -42,7 +42,7 @@ export default function StudentMaterialsPage() {
 
   useEffect(() => {
     let active = true;
-    if (selectedMaterial?.type === 'AUDIO' && selectedMaterial.files?.length) {
+    if (selectedMaterial?.files?.length) {
       const audioFile = selectedMaterial.files.find(
         (f: any) =>
           f.mimeType?.startsWith('audio/') ||
@@ -78,7 +78,8 @@ export default function StudentMaterialsPage() {
       setUser(currentUser);
 
       const data = await api.getMaterials();
-      const approved = (data || []).filter(
+      const items = Array.isArray(data) ? data : (data as any)?.items || [];
+      const approved = items.filter(
         (m: any) => m.status === 'APPROVED'
       );
       setMaterials(approved);

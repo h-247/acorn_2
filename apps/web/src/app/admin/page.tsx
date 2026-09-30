@@ -49,8 +49,9 @@ interface PaginationBarProps {
 
 function PaginationBar({ page, limit, total, onPageChange, onLimitChange, label = 'records' }: PaginationBarProps) {
   const totalPages = Math.max(1, Math.ceil(total / limit));
-  const start = total === 0 ? 0 : (page - 1) * limit + 1;
-  const end = Math.min(page * limit, total);
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const start = total === 0 ? 0 : Math.min((safePage - 1) * limit + 1, total);
+  const end = Math.min(safePage * limit, total);
 
   return (
     <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 bg-white border border-gray-200/80 rounded-xl text-xs text-[#656C79]">
@@ -165,6 +166,11 @@ function AdminPortalContent() {
 
   const handleTabChange = (newTab: AdminTab) => {
     setActiveTab(newTab);
+    setUserPage(1);
+    setCoursePage(1);
+    setClassPage(1);
+    setSkillPage(1);
+    setAuditPage(1);
     const sp = new URLSearchParams();
     sp.set('tab', newTab);
     router.replace(`/admin?${sp.toString()}`, { scroll: false });
@@ -179,131 +185,156 @@ function AdminPortalContent() {
   const [allCourses, setAllCourses] = useState<any[]>([]);
   const [allTeachers, setAllTeachers] = useState<any[]>([]);
   const [allStudents, setAllStudents] = useState<any[]>([]);
+  const [allClasses, setAllClasses] = useState<any[]>([]);
   const [skillTree, setSkillTree] = useState<any[]>([]);
   const [metrics, setMetrics] = useState<any | null>(null);
 
-  // Users Tab State
+  // Tab data states
   const [users, setUsers] = useState<any[]>([]);
   const [userTotal, setUserTotal] = useState(0);
-  const [userPage, setUserPage] = useState<number>(Number(searchParams.get('page') || 1));
-  const [userLimit, setUserLimit] = useState<number>(Number(searchParams.get('limit') || 10));
-  const [userSearch, setUserSearch] = useState<string>(searchParams.get('search') || '');
-  const [userRoleFilter, setUserRoleFilter] = useState<string>(searchParams.get('role') || '');
-  const [userStatusFilter, setUserStatusFilter] = useState<string>(searchParams.get('status') || '');
+  const [userPage, setUserPage] = useState(1);
+  const [userLimit, setUserLimit] = useState(10);
+  const [userSearch, setUserSearch] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState('');
+  const [userStatusFilter, setUserStatusFilter] = useState('');
 
-  // Courses Tab State
   const [courses, setCourses] = useState<any[]>([]);
   const [courseTotal, setCourseTotal] = useState(0);
-  const [coursePage, setCoursePage] = useState<number>(Number(searchParams.get('page') || 1));
-  const [courseLimit, setCourseLimit] = useState<number>(Number(searchParams.get('limit') || 10));
-  const [courseSearch, setCourseSearch] = useState<string>(searchParams.get('search') || '');
-  const [courseLevelFilter, setCourseLevelFilter] = useState<string>(searchParams.get('level') || '');
+  const [coursePage, setCoursePage] = useState(1);
+  const [courseLimit, setCourseLimit] = useState(10);
+  const [courseSearch, setCourseSearch] = useState('');
+  const [courseLevelFilter, setCourseLevelFilter] = useState('');
 
-  // Classes Tab State
   const [classes, setClasses] = useState<any[]>([]);
   const [classTotal, setClassTotal] = useState(0);
-  const [classPage, setClassPage] = useState<number>(Number(searchParams.get('page') || 1));
-  const [classLimit, setClassLimit] = useState<number>(Number(searchParams.get('limit') || 10));
-  const [classSearch, setClassSearch] = useState<string>(searchParams.get('search') || '');
-  const [classCourseFilter, setClassCourseFilter] = useState<string>(searchParams.get('courseId') || '');
-  const [classTeacherFilter, setClassTeacherFilter] = useState<string>(searchParams.get('teacherId') || '');
-  const [classLevelFilter, setClassLevelFilter] = useState<string>(searchParams.get('level') || '');
+  const [classPage, setClassPage] = useState(1);
+  const [classLimit, setClassLimit] = useState(10);
+  const [classSearch, setClassSearch] = useState('');
+  const [classCourseFilter, setClassCourseFilter] = useState('');
+  const [classTeacherFilter, setClassTeacherFilter] = useState('');
+  const [classLevelFilter, setClassLevelFilter] = useState('');
 
-  // Taxonomy Tab State
-  const [taxonomyView, setTaxonomyView] = useState<'tree' | 'list'>('list');
   const [skills, setSkills] = useState<any[]>([]);
   const [skillTotal, setSkillTotal] = useState(0);
-  const [skillPage, setSkillPage] = useState<number>(Number(searchParams.get('page') || 1));
-  const [skillLimit, setSkillLimit] = useState<number>(Number(searchParams.get('limit') || 10));
-  const [skillSearch, setSkillSearch] = useState<string>(searchParams.get('search') || '');
-  const [skillAreaFilter, setSkillAreaFilter] = useState<string>(searchParams.get('area') || '');
-  const [skillLevelFilter, setSkillLevelFilter] = useState<string>(searchParams.get('level') || '');
+  const [skillPage, setSkillPage] = useState(1);
+  const [skillLimit, setSkillLimit] = useState(10);
+  const [skillSearch, setSkillSearch] = useState('');
+  const [skillAreaFilter, setSkillAreaFilter] = useState('');
+  const [skillLevelFilter, setSkillLevelFilter] = useState('');
 
-  // Audit Tab State
   const [auditEvents, setAuditEvents] = useState<any[]>([]);
   const [auditTotal, setAuditTotal] = useState(0);
-  const [auditPage, setAuditPage] = useState<number>(Number(searchParams.get('page') || 1));
-  const [auditLimit, setAuditLimit] = useState<number>(Number(searchParams.get('limit') || 10));
-  const [auditSearch, setAuditSearch] = useState<string>(searchParams.get('search') || '');
-  const [auditActionFilter, setAuditActionFilter] = useState<string>(searchParams.get('action') || '');
-  const [auditEntityFilter, setAuditEntityFilter] = useState<string>(searchParams.get('entityType') || '');
-  const [auditRoleFilter, setAuditRoleFilter] = useState<string>(searchParams.get('actorRole') || '');
-  const [auditStartDate, setAuditStartDate] = useState<string>(searchParams.get('startDate') || '');
-  const [auditEndDate, setAuditEndDate] = useState<string>(searchParams.get('endDate') || '');
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditLimit, setAuditLimit] = useState(10);
+  const [auditSearch, setAuditSearch] = useState('');
+  const [auditActionFilter, setAuditActionFilter] = useState('');
+  const [auditEntityFilter, setAuditEntityFilter] = useState('');
+  const [auditRoleFilter, setAuditRoleFilter] = useState('');
+  const [auditStartDate, setAuditStartDate] = useState('');
+  const [auditEndDate, setAuditEndDate] = useState('');
 
-  // Class Enrollments Modal State
-  const [isEnrollmentsModalOpen, setIsEnrollmentsModalOpen] = useState(false);
-  const [activeEnrollmentClass, setActiveEnrollmentClass] = useState<any | null>(null);
+  const showSuccess = (msg: string) => setSuccessMessage(msg);
+
+  // Enrollments Modal States
+  const [enrollments, setEnrollments] = useState<any[]>([]);
   const [classEnrollments, setClassEnrollments] = useState<any[]>([]);
+  const [enrollmentLoading, setEnrollmentLoading] = useState(false);
   const [enrollmentTotal, setEnrollmentTotal] = useState(0);
   const [enrollmentPage, setEnrollmentPage] = useState(1);
   const [enrollmentLimit, setEnrollmentLimit] = useState(5);
   const [enrollmentSearch, setEnrollmentSearch] = useState('');
-  const [enrollmentLoading, setEnrollmentLoading] = useState(false);
+  const [activeEnrollmentClass, setActiveEnrollmentClass] = useState<any | null>(null);
+  const [isEnrollmentsModalOpen, setIsEnrollmentsModalOpen] = useState(false);
+  const [taxonomyView, setTaxonomyView] = useState<'list' | 'tree'>('list');
 
-  // Dialog states
+  // User Modal States
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
-  const [isCourseModalOpen, setIsCourseModalOpen] = useState(false);
-  const [isClassModalOpen, setIsClassModalOpen] = useState(false);
-  const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
-  const [isSkillModalOpen, setIsSkillModalOpen] = useState(false);
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
+  const [newUserRole, setNewUserRole] = useState('STUDENT');
 
-  // Edit Course Modal
+  // Course Modal States
+  const [isCourseModalOpen, setIsCourseModalOpen] = useState(false);
+  const [newCourseCode, setNewCourseCode] = useState('');
+  const [newCourseName, setNewCourseName] = useState('');
+  const [newCourseLevel, setNewCourseLevel] = useState('BEGINNER');
+  const [newCourseDesc, setNewCourseDesc] = useState('');
+
   const [isEditCourseModalOpen, setIsEditCourseModalOpen] = useState(false);
+  const [editingCourse, setEditingCourse] = useState<any | null>(null);
   const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
   const [editCourseCode, setEditCourseCode] = useState('');
   const [editCourseName, setEditCourseName] = useState('');
-  const [editCourseLevel, setEditCourseLevel] = useState('B1');
+  const [editCourseLevel, setEditCourseLevel] = useState('');
   const [editCourseDesc, setEditCourseDesc] = useState('');
 
-  // Edit Class Modal
+  // Class Modal States
+  const [isClassModalOpen, setIsClassModalOpen] = useState(false);
+  const [newClassCourseId, setNewClassCourseId] = useState('');
+  const [newClassName, setNewClassName] = useState('');
+  const [newClassLevel, setNewClassLevel] = useState('BEGINNER');
+  const [newClassTeacherId, setNewClassTeacherId] = useState('');
+  const [newClassNextActivity, setNewClassNextActivity] = useState('');
+
   const [isEditClassModalOpen, setIsEditClassModalOpen] = useState(false);
+  const [editingClass, setEditingClass] = useState<any | null>(null);
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
   const [editClassName, setEditClassName] = useState('');
-  const [editClassLevel, setEditClassLevel] = useState('B1');
+  const [editClassLevel, setEditClassLevel] = useState('');
   const [editClassTeacherId, setEditClassTeacherId] = useState('');
   const [editClassNextActivity, setEditClassNextActivity] = useState('');
 
-  // Reset Password Modal
+  // Enroll Modal States
+  const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
+  const [selectedEnrollClassId, setSelectedEnrollClassId] = useState('');
+  const [selectedEnrollStudentId, setSelectedEnrollStudentId] = useState('');
+
+  // Skill Modal States
+  const [isSkillModalOpen, setIsSkillModalOpen] = useState(false);
+  const [newSkillCode, setNewSkillCode] = useState('');
+  const [newSkillName, setNewSkillName] = useState('');
+  const [newSkillArea, setNewSkillArea] = useState('READING');
+  const [newSkillParentId, setNewSkillParentId] = useState('');
+  const [newSkillLevel, setNewSkillLevel] = useState('A1');
+  const [newSkillDesc, setNewSkillDesc] = useState('');
+
+  // Reset Password Modal States
   const [isResetPasswordModalOpen, setIsResetPasswordModalOpen] = useState(false);
   const [resetTargetUser, setResetTargetUser] = useState<any | null>(null);
   const [newResetPassword, setNewResetPassword] = useState('');
 
-  // Form states: New User
-  const [newUserEmail, setNewUserEmail] = useState('');
-  const [newUserName, setNewUserName] = useState('');
-  const [newUserPassword, setNewUserPassword] = useState('');
-  const [newUserRole, setNewUserRole] = useState('TEACHER');
+  // Refresh global lookups helper
+  const refreshLookups = useCallback(async () => {
+    try {
+      const [cList, uList, sTree, mData, clsList] = await Promise.all([
+        api.getCourses({ all: true }).catch(() => []),
+        api.getUsers({ all: true }).catch(() => []),
+        api.getSkillTree().catch(() => []),
+        api.getMetrics().catch(() => null),
+        api.getClasses({ all: true }).catch(() => []),
+      ]);
+      const courseRows = Array.isArray(cList?.items) ? cList.items : Array.isArray(cList) ? cList : [];
+      const userRows = Array.isArray(uList?.items) ? uList.items : Array.isArray(uList) ? uList : [];
+      const classRows = Array.isArray(clsList?.items) ? clsList.items : Array.isArray(clsList) ? clsList : [];
+      const teachers = userRows.filter((u: any) => u.role === 'TEACHER' || u.role === 'ADMIN');
+      const students = userRows.filter((u: any) => u.role === 'STUDENT');
 
-  // Form states: New Course
-  const [newCourseCode, setNewCourseCode] = useState('');
-  const [newCourseName, setNewCourseName] = useState('');
-  const [newCourseLevel, setNewCourseLevel] = useState('B1');
-  const [newCourseDesc, setNewCourseDesc] = useState('');
+      setAllCourses(courseRows);
+      setAllTeachers(teachers);
+      setAllStudents(students);
+      setAllClasses(classRows);
+      setSkillTree(Array.isArray(sTree) ? sTree : []);
+      setMetrics(mData);
 
-  // Form states: New Class
-  const [newClassCourseId, setNewClassCourseId] = useState('');
-  const [newClassName, setNewClassName] = useState('');
-  const [newClassLevel, setNewClassLevel] = useState('B1');
-  const [newClassTeacherId, setNewClassTeacherId] = useState('');
-  const [newClassNextActivity, setNewClassNextActivity] = useState('');
-
-  // Form states: Enroll
-  const [selectedEnrollClassId, setSelectedEnrollClassId] = useState('');
-  const [selectedEnrollStudentId, setSelectedEnrollStudentId] = useState('');
-
-  // Form states: New Skill
-  const [newSkillCode, setNewSkillCode] = useState('');
-  const [newSkillName, setNewSkillName] = useState('');
-  const [newSkillArea, setNewSkillArea] = useState('READING');
-  const [newSkillParentId, setNewSkillParentId] = useState<string>('');
-  const [newSkillLevel, setNewSkillLevel] = useState('B1');
-  const [newSkillDesc, setNewSkillDesc] = useState('');
-
-  const showSuccess = (msg: string) => {
-    setSuccessMessage(msg);
-    setTimeout(() => setSuccessMessage(null), 3500);
-  };
+      if (courseRows.length > 0) setNewClassCourseId((prev) => prev || courseRows[0].id);
+      if (teachers.length > 0) setNewClassTeacherId((prev) => prev || teachers[0].id);
+      if (students.length > 0) setSelectedEnrollStudentId((prev) => prev || students[0].id);
+      if (classRows.length > 0) setSelectedEnrollClassId((prev) => prev || classRows[0].id);
+    } catch (err: any) {
+      console.warn('Failed to load lookup items:', err);
+    }
+  }, []);
 
   // 1. Initial auth and lookup data
   useEffect(() => {
@@ -316,34 +347,10 @@ function AdminPortalContent() {
         window.location.href = '/sign-in';
         return;
       }
-
-      try {
-        const [cList, uList, sTree, mData] = await Promise.all([
-          api.getCourses({ all: true }),
-          api.getUsers({ all: true }),
-          api.getSkillTree(),
-          api.getMetrics().catch(() => null),
-        ]);
-        const courseRows = Array.isArray(cList?.items) ? cList.items : Array.isArray(cList) ? cList : [];
-        const userRows = Array.isArray(uList?.items) ? uList.items : Array.isArray(uList) ? uList : [];
-
-        setAllCourses(courseRows);
-        setAllTeachers(userRows.filter((u: any) => u.role === 'TEACHER'));
-        setAllStudents(userRows.filter((u: any) => u.role === 'STUDENT'));
-        setSkillTree(Array.isArray(sTree) ? sTree : []);
-        setMetrics(mData);
-
-        if (courseRows.length > 0) setNewClassCourseId(courseRows[0].id);
-        const teachers = userRows.filter((u: any) => u.role === 'TEACHER');
-        if (teachers.length > 0) setNewClassTeacherId(teachers[0].id);
-        const students = userRows.filter((u: any) => u.role === 'STUDENT');
-        if (students.length > 0) setSelectedEnrollStudentId(students[0].id);
-      } catch (err: any) {
-        console.warn('Failed to load lookup items:', err);
-      }
+      await refreshLookups();
     }
     loadLookups();
-  }, []);
+  }, [refreshLookups]);
 
   // 2. Fetch active tab data
   const loadActiveTabData = useCallback(async () => {
@@ -510,6 +517,7 @@ function AdminPortalContent() {
 
   // Handlers
   const handleToggleUserActive = async (user: any) => {
+    setError(null);
     try {
       const nextActive = user.isActive === false;
       await api.updateUser(user.id, { isActive: nextActive });
@@ -522,6 +530,7 @@ function AdminPortalContent() {
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     if (!resetTargetUser) return;
     if (!newResetPassword || newResetPassword.length < 6) {
       setError('New password must be at least 6 characters.');
@@ -549,6 +558,7 @@ function AdminPortalContent() {
 
   const handleUpdateCourse = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     if (!editingCourseId) return;
     try {
       await api.updateCourse(editingCourseId, {
@@ -576,6 +586,7 @@ function AdminPortalContent() {
 
   const handleUpdateClass = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     if (!editingClassId) return;
     try {
       await api.updateClass(editingClassId, {
@@ -594,6 +605,7 @@ function AdminPortalContent() {
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     try {
       await api.createUser({
         email: newUserEmail,
@@ -606,6 +618,12 @@ function AdminPortalContent() {
       setNewUserName('');
       setNewUserPassword('');
       showSuccess(`User ${newUserName} created successfully!`);
+      const uList = await api.getUsers({ all: true }).catch(() => null);
+      if (uList) {
+        const userRows = Array.isArray(uList?.items) ? uList.items : Array.isArray(uList) ? uList : [];
+        setAllTeachers(userRows.filter((u: any) => u.role === 'TEACHER' || u.role === 'ADMIN'));
+        setAllStudents(userRows.filter((u: any) => u.role === 'STUDENT'));
+      }
       loadActiveTabData();
     } catch (err: any) {
       setError(err.message || 'Failed to create user');
@@ -614,6 +632,7 @@ function AdminPortalContent() {
 
   const handleCreateCourse = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     try {
       await api.createCourse({
         code: newCourseCode,
@@ -634,6 +653,7 @@ function AdminPortalContent() {
 
   const handleCreateClass = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     try {
       await api.createClass({
         courseId: newClassCourseId,
@@ -654,6 +674,7 @@ function AdminPortalContent() {
 
   const handleEnroll = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     try {
       await api.enrollLearner(selectedEnrollClassId, selectedEnrollStudentId);
       setIsEnrollModalOpen(false);
@@ -669,6 +690,7 @@ function AdminPortalContent() {
 
   const handleUnenroll = async (classId: string, learnerId: string, learnerName?: string) => {
     if (!confirm(`Are you sure you want to unenroll ${learnerName || 'this student'} from this class?`)) return;
+    setError(null);
     try {
       await api.unenrollLearner(classId, learnerId);
       showSuccess('Learner unenrolled successfully.');
@@ -683,6 +705,7 @@ function AdminPortalContent() {
 
   const handleCreateSkill = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     try {
       await api.createSkill({
         code: newSkillCode,
@@ -697,6 +720,7 @@ function AdminPortalContent() {
       setNewSkillName('');
       setNewSkillDesc('');
       showSuccess(`Skill ${newSkillName} added to taxonomy!`);
+      refreshLookups();
       loadActiveTabData();
     } catch (err: any) {
       setError(err.message || 'Failed to create skill');
@@ -705,9 +729,11 @@ function AdminPortalContent() {
 
   const handleDeleteSkill = async (skillId: string, skillName: string) => {
     if (!confirm(`Are you sure you want to delete "${skillName}"? This action cannot be undone.`)) return;
+    setError(null);
     try {
       await api.deleteSkill(skillId);
       showSuccess(`Skill "${skillName}" deleted.`);
+      refreshLookups();
       loadActiveTabData();
     } catch (err: any) {
       setError(err.message || 'Failed to delete skill node');
@@ -1091,7 +1117,12 @@ function AdminPortalContent() {
                   variant="outline"
                   size="sm"
                   icon={<UserPlus className="w-4 h-4" />}
-                  onClick={() => setIsEnrollModalOpen(true)}
+                  onClick={() => {
+                    if (!selectedEnrollClassId && classes.length > 0) {
+                      setSelectedEnrollClassId(classes[0].id);
+                    }
+                    setIsEnrollModalOpen(true);
+                  }}
                 >
                   Enroll Learner
                 </Button>
@@ -1638,6 +1669,18 @@ function AdminPortalContent() {
                     aria-label="From Date"
                     className="w-full px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs text-[#082051] focus:outline-none focus:ring-1 focus:ring-[#0967F7]"
                   />
+                  <input
+                    type="date"
+                    value={auditEndDate}
+                    onChange={(e) => {
+                      setAuditEndDate(e.target.value);
+                      setAuditPage(1);
+                      updateUrl({ endDate: e.target.value, page: 1 });
+                    }}
+                    title="To Date"
+                    aria-label="To Date"
+                    className="w-full px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs text-[#082051] focus:outline-none focus:ring-1 focus:ring-[#0967F7]"
+                  />
                 </div>
               </div>
             </Card>
@@ -1774,7 +1817,7 @@ function AdminPortalContent() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {classEnrollments.map((enr) => (
+                    {classEnrollments.map((enr: any) => (
                       <tr key={enr.learnerId} className="hover:bg-gray-50/50">
                         <td className="p-2.5">
                           <div className="font-semibold text-[#082051]">{enr.learnerName}</div>
@@ -2095,7 +2138,7 @@ function AdminPortalContent() {
               label="Target Class Cohort"
               value={selectedEnrollClassId}
               onChange={(e) => setSelectedEnrollClassId(e.target.value)}
-              options={classes.map((c) => ({ label: `${c.name} (${c.level})`, value: c.id }))}
+              options={allClasses.map((c) => ({ label: `${c.name} (${c.level})`, value: c.id }))}
             />
             <Select
               label="Student"

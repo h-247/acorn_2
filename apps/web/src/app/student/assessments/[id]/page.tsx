@@ -273,13 +273,25 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
       } else {
         setListeningAudioUrl(null);
       }
+    } else if (currentQ?.type === 'SPEAKING' && submissionId && currentQ?.id) {
+      setListeningAudioUrl(null);
+      const existingAns = answers[currentQ.id];
+      if (existingAns?.fileKey || existingAns?.audioUrl) {
+        api.getSubmissionAudioUrl(submissionId, currentQ.id)
+          .then((res) => {
+            if (active && (res.audioUrl || res.url)) {
+              setAudioUrl(res.audioUrl || res.url || null);
+            }
+          })
+          .catch(() => {});
+      }
     } else {
       setListeningAudioUrl(null);
     }
     return () => {
       active = false;
     };
-  }, [currentQ]);
+  }, [currentQ, submissionId, answers]);
 
   // Answer Saving
   const handleSaveAnswer = async (qId: string, val: any) => {
@@ -356,7 +368,7 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
         fileKey: result.fileKey,
         uploadedAt: new Date().toISOString(),
       };
-      setAnswers((prev) => ({ ...prev, [currentQ.id]: payload }));
+      await handleSaveAnswer(currentQ.id, payload);
       setAutosaveStatus('Audio response saved');
     } catch (err: any) {
       alert('Failed to upload audio: ' + (err.message || 'Unknown error'));
@@ -378,8 +390,8 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
         filename: file.name,
         uploadedAt: new Date().toISOString(),
       };
-      setAnswers((prev) => ({ ...prev, [currentQ.id]: payload }));
       setAudioUrl(result.audioUrl);
+      await handleSaveAnswer(currentQ.id, payload);
       setAutosaveStatus('Audio file uploaded and saved');
     } catch (err: any) {
       alert('Audio file upload failed: ' + err.message);
@@ -475,9 +487,21 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
     );
   }
 
-  const answeredCount = Object.keys(answers).length;
+  const answeredCount = Object.values(answers).filter((val) => {
+    if (val === null || val === undefined) return false;
+    if (typeof val === 'string') return val.trim().length > 0;
+    if (typeof val === 'object') {
+      return (
+        Boolean(val.audioUrl) ||
+        Boolean(val.selectedOption) ||
+        (typeof val.text === 'string' && val.text.trim().length > 0) ||
+        (typeof val.notes === 'string' && val.notes.trim().length > 0)
+      );
+    }
+    return true;
+  }).length;
   const unansweredCount = Math.max(0, questions.length - answeredCount);
-  const progressPercent = Math.round((answeredCount / questions.length) * 100);
+  const progressPercent = questions.length > 0 ? Math.round((answeredCount / questions.length) * 100) : 0;
 
   // Timer format
   const formatTime = (secs: number) => {
@@ -728,20 +752,21 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
             {/* 1. MCQ & LISTENING TYPE */}
             {(currentQ?.type === 'MCQ' || currentQ?.type === 'LISTENING') && currentQ.options && currentQ.options.length > 0 ? (
               <div className="space-y-2">
-                {currentQ.options.map((opt: string, idx: number) => {
+                {currentQ.options.map((opt: any, idx: number) => {
+                  const optionText = typeof opt === 'string' ? opt : (opt?.text || opt?.label || String(opt));
                   const studentAns = answers[currentQ.id];
-                  const isSelected = studentAns === opt;
+                  const isSelected = studentAns === optionText || studentAns === opt;
                   const isCorrectAnswer =
-                    submissionStatus === 'EVALUATED' && currentQ.correctAnswer === opt;
+                    submissionStatus === 'EVALUATED' && (currentQ.correctAnswer === optionText || currentQ.correctAnswer === opt);
                   const isWrongChoice =
-                    submissionStatus === 'EVALUATED' && isSelected && currentQ.correctAnswer !== opt;
+                    submissionStatus === 'EVALUATED' && isSelected && !isCorrectAnswer;
 
                   return (
                     <button
                       type="button"
                       key={idx}
                       data-testid={`answer-option-${idx}`}
-                      onClick={() => handleSaveAnswer(currentQ.id, opt)}
+                      onClick={() => handleSaveAnswer(currentQ.id, optionText)}
                       disabled={isReadOnly}
                       aria-disabled={isReadOnly}
                       className={`w-full text-left p-3.5 rounded-xl border text-xs font-medium transition-all flex items-center justify-between gap-3 ${
@@ -768,7 +793,7 @@ export default function AssessmentPlayerPage({ params }: { params: { id: string 
                         >
                           {isSelected && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
                         </div>
-                        <span aria-disabled={isReadOnly} {...(isReadOnly ? ({ disabled: true } as any) : {})}>{opt}</span>
+                        <span aria-disabled={isReadOnly}>{optionText}</span>
                       </div>
 
                       {isCorrectAnswer && (

@@ -147,8 +147,11 @@ export default function QuestionEditorPage({ params }: { params: { id: string } 
       if (type === 'WRITING' || type === 'SPEAKING') {
         try {
           parsedRubric = JSON.parse(rubricCriteria);
-        } catch (e) {
-          throw new Error('Rubric criteria must be a valid JSON array');
+          if (!Array.isArray(parsedRubric)) {
+            throw new Error('Rubric criteria must be a JSON array');
+          }
+        } catch (e: any) {
+          throw new Error(e.message || 'Rubric criteria must be a valid JSON array');
         }
       }
 

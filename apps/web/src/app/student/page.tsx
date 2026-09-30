@@ -120,7 +120,7 @@ export default function StudentHomePage() {
                           <Clock className="w-3 h-3" /> {activeSub.timeLimitMinutes} mins
                         </span>
                       )}
-                      {activeSub.dueAt && (
+                      {activeSub.dueAt && !isNaN(new Date(activeSub.dueAt).getTime()) && (
                         <span
                           className={`text-[11px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
                             new Date(activeSub.dueAt).getTime() < Date.now()
@@ -198,14 +198,16 @@ export default function StudentHomePage() {
                     </h3>
                     <div className="text-xs text-[#656C79] leading-relaxed" data-testid="rec-rationale">
                       {Array.isArray(recommendation.rationale) && recommendation.rationale.length > 0 ? (
-                        <p>{recommendation.rationale.join(' ')}</p>
+                        <p>{recommendation.rationale.map((r: any) => typeof r === 'string' ? r : (r?.text || JSON.stringify(r))).join(' ')}</p>
                       ) : recommendation.rationale?.texts && Array.isArray(recommendation.rationale.texts) ? (
                         <p>{recommendation.rationale.texts.join(' ')}</p>
                       ) : (
                         <p>
                           {typeof recommendation.rationale === 'string'
                             ? recommendation.rationale
-                            : 'Grounded in your recent assessment evidence, working on this material will help reinforce your target skills.'}
+                            : typeof recommendation.rationale === 'object' && recommendation.rationale !== null
+                              ? (recommendation.rationale.text || recommendation.rationale.reason || JSON.stringify(recommendation.rationale))
+                              : 'Grounded in your recent assessment evidence, working on this material will help reinforce your target skills.'}
                         </p>
                       )}
                     </div>

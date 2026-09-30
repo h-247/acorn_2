@@ -83,10 +83,15 @@ export default function EvidenceExplorerPage({ params }: { params: { id: string 
       setError('A correction reason is required for the immutable audit trail.');
       return;
     }
+    const parsedPercent = parseFloat(newScorePercent);
+    if (isNaN(parsedPercent) || parsedPercent < 0 || parsedPercent > 100) {
+      setError('Score percentage must be a valid number between 0 and 100.');
+      return;
+    }
     setSavingCorrection(true);
     setError(null);
     try {
-      const normScore = Math.max(0, Math.min(1, parseFloat(newScorePercent) / 100));
+      const normScore = Math.max(0, Math.min(1, parsedPercent / 100));
       await api.correctEvidence(selectedEvidence.id, {
         correctedNormalizedScore: normScore,
         reason: correctionReason.trim(),

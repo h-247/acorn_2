@@ -303,6 +303,11 @@ describe('Assignment targets', () => {
   // -- Next Activity ------------------------------------------------------
 
   it('sends a recommended paper to the one learner it is about', async () => {
+    await db
+      .update(schema.recommendations)
+      .set({ decisionStatus: 'WAITING', isStale: false })
+      .where(eq(schema.recommendations.id, SEED_IDS.recEmmaReadingInference));
+
     const paperId = await publishedPaper('Next activity');
 
     const res = await app.inject({
