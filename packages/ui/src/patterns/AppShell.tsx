@@ -5,8 +5,7 @@ import {
   CheckSquare,
   Users,
   GraduationCap,
-  HelpCircle,
-  Settings,
+  Activity,
   Bell,
   Search,
   ChevronDown,
@@ -71,11 +70,11 @@ export const AppShell: React.FC<AppShellProps> = ({
   ];
 
   const adminNav: NavItem[] = [
-    { id: 'admin-dashboard', label: 'Admin Portal', href: '/admin', icon: <Settings className="w-5 h-5 shrink-0" /> },
+    { id: 'admin-users', label: 'Users & Permissions', href: '/admin?tab=users', icon: <GraduationCap className="w-5 h-5 shrink-0" /> },
     { id: 'admin-courses', label: 'Courses & Curriculum', href: '/admin?tab=courses', icon: <BookOpen className="w-5 h-5 shrink-0" /> },
     { id: 'admin-classes', label: 'Classes & Enrollments', href: '/admin?tab=classes', icon: <Users className="w-5 h-5 shrink-0" /> },
-    { id: 'admin-users', label: 'Users & Permissions', href: '/admin?tab=users', icon: <GraduationCap className="w-5 h-5 shrink-0" /> },
     { id: 'admin-taxonomy', label: 'Skill Taxonomy', href: '/admin?tab=taxonomy', icon: <CheckSquare className="w-5 h-5 shrink-0" /> },
+    { id: 'admin-audit', label: 'Audit Trail & Metrics', href: '/admin?tab=audit', icon: <Activity className="w-5 h-5 shrink-0" /> },
   ];
 
   const navItems = roleMode === 'ADMIN' ? adminNav : roleMode === 'STUDENT' ? studentNav : teacherNav;
@@ -120,12 +119,11 @@ export const AppShell: React.FC<AppShellProps> = ({
           <div className={`h-16 flex items-center justify-between border-b border-gray-100 shrink-0 ${isCollapsed ? 'px-3' : 'px-4'}`}>
             <a href="/" className="flex items-center gap-2.5 overflow-hidden" title="Acorn">
               <div className="w-8 h-8 min-w-[32px] rounded-lg bg-[#0967F7] flex items-center justify-center text-white text-lg font-bold shadow-xs">
-                🌰
+                <span className="inline-block rotate-180" aria-hidden="true">🌰</span>
               </div>
               {!isCollapsed && (
                 <div className="flex flex-col whitespace-nowrap overflow-hidden">
                   <span className="font-bold text-base text-[#082051] leading-tight">Acorn</span>
-                  <span className="text-[10px] text-[#656C79] font-medium leading-none">by Agentivium AI</span>
                 </div>
               )}
             </a>
@@ -194,19 +192,8 @@ export const AppShell: React.FC<AppShellProps> = ({
           </nav>
         </div>
 
-        {/* Sidebar Footer with Sign Out (fixed, no mascot banner) */}
+        {/* Sidebar Footer */}
         <div className="shrink-0 p-2 border-t border-gray-100 space-y-1">
-          <a
-            href="#"
-            title={isCollapsed ? 'Help & Support' : undefined}
-            aria-label="Help & Support"
-            className={`flex items-center rounded-lg text-xs font-medium text-[#656C79] hover:text-[#082051] hover:bg-gray-50 transition-colors ${
-              isCollapsed ? 'justify-center p-2.5' : 'gap-2.5 px-3 py-2'
-            }`}
-          >
-            <HelpCircle className="w-4 h-4 text-[#5969AB] shrink-0" />
-            {!isCollapsed && <span>Help & Support</span>}
-          </a>
           <button
             type="button"
             onClick={handleSignOut}

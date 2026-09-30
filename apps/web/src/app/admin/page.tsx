@@ -4,7 +4,6 @@ import React, { useState, useEffect, useCallback, Suspense, useMemo } from 'reac
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   AppShell,
-  EntityHeader,
   Button,
   Badge,
   Card,
@@ -22,7 +21,6 @@ import {
   Trash2,
   UserPlus,
   Shield,
-  Activity,
   AlertCircle,
   CheckCircle2,
   Search,
@@ -30,7 +28,6 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
-  RefreshCw,
   List,
   FolderTree,
 } from 'lucide-react';
@@ -163,18 +160,6 @@ function AdminPortalContent() {
     },
     [router, searchParams]
   );
-
-  const handleTabChange = (newTab: AdminTab) => {
-    setActiveTab(newTab);
-    setUserPage(1);
-    setCoursePage(1);
-    setClassPage(1);
-    setSkillPage(1);
-    setAuditPage(1);
-    const sp = new URLSearchParams();
-    sp.set('tab', newTab);
-    router.replace(`/admin?${sp.toString()}`, { scroll: false });
-  };
 
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -742,31 +727,12 @@ function AdminPortalContent() {
 
   return (
     <AppShell
-      currentPath="/admin"
+      currentPath={`/admin?tab=${activeTab}`}
       userName={currentUser?.name || 'Administrator'}
       userRole={currentUser?.role || 'Admin'}
       roleMode="ADMIN"
     >
       <div className="space-y-6">
-        {/* Header Banner */}
-        <EntityHeader
-          title="Center Governance & Administration"
-          subtitle="Manage user credentials, curriculum courses, classroom enrollments, skill taxonomy, and system audit logs."
-          badge={<Badge variant="default">Center Administration</Badge>}
-          actions={
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                icon={<RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />}
-                onClick={() => loadActiveTabData()}
-              >
-                Refresh
-              </Button>
-            </div>
-          }
-        />
-
         {/* Global Notifications */}
         {error && (
           <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-center justify-between">
@@ -790,30 +756,6 @@ function AdminPortalContent() {
             </button>
           </div>
         )}
-
-        {/* Section Tabs */}
-        <div className="flex border-b border-gray-200 space-x-6 overflow-x-auto">
-          {[
-            { id: 'users', label: 'Users & Permissions', icon: <GraduationCap className="w-4 h-4" /> },
-            { id: 'courses', label: 'Courses & Curriculum', icon: <BookOpen className="w-4 h-4" /> },
-            { id: 'classes', label: 'Classes & Enrollments', icon: <Users className="w-4 h-4" /> },
-            { id: 'taxonomy', label: 'Skill Taxonomy', icon: <CheckSquare className="w-4 h-4" /> },
-            { id: 'audit', label: 'Audit Trail & Metrics', icon: <Activity className="w-4 h-4" /> },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => handleTabChange(tab.id as AdminTab)}
-              className={`flex items-center gap-2 pb-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
-                activeTab === tab.id
-                  ? 'border-[#0967F7] text-[#0967F7]'
-                  : 'border-transparent text-[#656C79] hover:text-[#082051]'
-              }`}
-            >
-              {tab.icon}
-              <span>{tab.label}</span>
-            </button>
-          ))}
-        </div>
 
         {/* ========================================================= */}
         {/* TAB 1: USERS */}
