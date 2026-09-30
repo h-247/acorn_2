@@ -79,6 +79,17 @@ export const AppShell: React.FC<AppShellProps> = ({
 
   const navItems = roleMode === 'ADMIN' ? adminNav : roleMode === 'STUDENT' ? studentNav : teacherNav;
   const brandHref = roleMode === 'ADMIN' ? '/admin?tab=users' : roleMode === 'STUDENT' ? '/student' : '/';
+  const getIsActive = (href: string) => {
+    if (href.includes('?')) {
+      return currentPath === href;
+    }
+
+    if (href === '/' || href === '/student') {
+      return currentPath === href;
+    }
+
+    return currentPath === href || currentPath.startsWith(`${href}/`);
+  };
 
   const handleSignOut = async () => {
     if (onLogout) {
@@ -109,16 +120,16 @@ export const AppShell: React.FC<AppShellProps> = ({
         />
       )}
 
-      {/* Sidebar - fixed viewport height, sticky top-0, dual fixed width 256px (w-64) or 64px (w-16) */}
+      {/* Sidebar - fixed viewport height, sticky top-0, dual fixed width 256px (w-64) or 80px (w-20) */}
       <aside
         className={`fixed lg:sticky top-0 h-screen z-50 bg-white border-r border-gray-200/80 flex flex-col justify-between transition-all duration-200 shrink-0 ${
-          isCollapsed ? 'w-16' : 'w-64'
+          isCollapsed ? 'w-20' : 'w-64'
         } ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >
         <div className="flex flex-col flex-1 min-h-0">
           {/* Brand header */}
-          <div className={`h-16 flex items-center justify-between border-b border-gray-100 shrink-0 ${isCollapsed ? 'px-3' : 'px-4'}`}>
-            <a href={brandHref} className="flex items-center gap-2.5 overflow-hidden" title="Acorn">
+          <div className={`h-16 flex items-center justify-between border-b border-gray-100 shrink-0 ${isCollapsed ? 'gap-1 px-2' : 'px-4'}`}>
+            <a href={brandHref} className="flex min-w-0 items-center gap-2.5 overflow-hidden" title="Acorn">
               <div className="w-8 h-8 min-w-[32px] rounded-lg bg-[#0967F7] flex items-center justify-center text-white text-lg font-bold shadow-xs">
                 <span aria-hidden="true">🌰</span>
               </div>
@@ -135,7 +146,7 @@ export const AppShell: React.FC<AppShellProps> = ({
               aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               aria-expanded={!isCollapsed}
               title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              className="hidden lg:flex items-center justify-center w-7 h-7 rounded-lg text-[#656C79] hover:text-[#082051] hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-[#0967F7]"
+              className="hidden lg:flex w-7 h-7 shrink-0 items-center justify-center rounded-lg text-[#656C79] hover:text-[#082051] hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-[#0967F7]"
             >
               {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
             </button>
@@ -153,10 +164,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           {/* Nav items with internal scrolling */}
           <nav className="flex-1 overflow-y-auto p-2 space-y-1" aria-label="Main Navigation">
             {navItems.map((item) => {
-              const isActive =
-                item.href === '/'
-                  ? currentPath === '/'
-                  : currentPath.startsWith(item.href);
+              const isActive = getIsActive(item.href);
               return (
                 <a
                   key={item.id}
