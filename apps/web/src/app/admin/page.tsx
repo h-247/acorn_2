@@ -764,8 +764,8 @@ function AdminPortalContent() {
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               <div>
-                <h2 className="text-base font-bold text-[#082051]">Center Accounts</h2>
-                <p className="text-xs text-[#656C79]">Authorized teachers, students, and administrators.</p>
+                <h2 className="text-base font-bold text-[#082051]">Users &amp; Permissions</h2>
+                <p className="text-xs text-[#656C79]">Manage user accounts, roles, and permissions.</p>
               </div>
               <Button
                 variant="primary"

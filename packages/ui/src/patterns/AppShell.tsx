@@ -119,7 +119,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           <div className={`h-16 flex items-center justify-between border-b border-gray-100 shrink-0 ${isCollapsed ? 'px-3' : 'px-4'}`}>
             <a href="/" className="flex items-center gap-2.5 overflow-hidden" title="Acorn">
               <div className="w-8 h-8 min-w-[32px] rounded-lg bg-[#0967F7] flex items-center justify-center text-white text-lg font-bold shadow-xs">
-                <span className="inline-block rotate-180" aria-hidden="true">🌰</span>
+                <span className="inline-block" style={{ transform: 'rotate(180deg)' }} aria-hidden="true">🌰</span>
               </div>
               {!isCollapsed && (
                 <div className="flex flex-col whitespace-nowrap overflow-hidden">
