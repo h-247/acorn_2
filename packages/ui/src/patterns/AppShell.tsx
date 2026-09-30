@@ -79,6 +79,7 @@ export const AppShell: React.FC<AppShellProps> = ({
 
   const navItems = roleMode === 'ADMIN' ? adminNav : roleMode === 'STUDENT' ? studentNav : teacherNav;
   const brandHref = roleMode === 'ADMIN' ? '/admin?tab=users' : roleMode === 'STUDENT' ? '/student' : '/';
+  const contentWidthClass = roleMode === 'ADMIN' ? 'max-w-none' : 'max-w-7xl mx-auto';
   const getIsActive = (href: string) => {
     if (href.includes('?')) {
       return currentPath === href;
@@ -263,7 +264,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         </header>
 
         {/* Content Viewport */}
-        <main className="flex-1 p-6 max-w-7xl w-full mx-auto">{children}</main>
+        <main className={`flex-1 p-6 w-full ${contentWidthClass}`}>{children}</main>
       </div>
     </div>
   );

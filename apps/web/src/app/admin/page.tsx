@@ -1517,7 +1517,7 @@ function AdminPortalContent() {
 
             {/* Filter Bar */}
             <Card className="p-3.5 border-gray-200/80 bg-white">
-              <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-2.5 text-xs">
                 <div className="relative lg:col-span-2">
                   <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                   <input
@@ -1598,32 +1598,30 @@ function AdminPortalContent() {
                   ]}
                 />
 
-                <div className="flex items-center gap-1">
-                  <input
-                    type="date"
-                    value={auditStartDate}
-                    onChange={(e) => {
-                      setAuditStartDate(e.target.value);
-                      setAuditPage(1);
-                      updateUrl({ startDate: e.target.value, page: 1 });
-                    }}
-                    title="From Date"
-                    aria-label="From Date"
-                    className="w-full px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs text-[#082051] focus:outline-none focus:ring-1 focus:ring-[#0967F7]"
-                  />
-                  <input
-                    type="date"
-                    value={auditEndDate}
-                    onChange={(e) => {
-                      setAuditEndDate(e.target.value);
-                      setAuditPage(1);
-                      updateUrl({ endDate: e.target.value, page: 1 });
-                    }}
-                    title="To Date"
-                    aria-label="To Date"
-                    className="w-full px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs text-[#082051] focus:outline-none focus:ring-1 focus:ring-[#0967F7]"
-                  />
-                </div>
+                <input
+                  type="date"
+                  value={auditStartDate}
+                  onChange={(e) => {
+                    setAuditStartDate(e.target.value);
+                    setAuditPage(1);
+                    updateUrl({ startDate: e.target.value, page: 1 });
+                  }}
+                  title="From Date"
+                  aria-label="From Date"
+                  className="w-full min-w-0 px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs text-[#082051] focus:outline-none focus:ring-1 focus:ring-[#0967F7]"
+                />
+                <input
+                  type="date"
+                  value={auditEndDate}
+                  onChange={(e) => {
+                    setAuditEndDate(e.target.value);
+                    setAuditPage(1);
+                    updateUrl({ endDate: e.target.value, page: 1 });
+                  }}
+                  title="To Date"
+                  aria-label="To Date"
+                  className="w-full min-w-0 px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs text-[#082051] focus:outline-none focus:ring-1 focus:ring-[#0967F7]"
+                />
               </div>
             </Card>
 
