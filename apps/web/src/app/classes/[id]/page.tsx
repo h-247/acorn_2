@@ -44,7 +44,7 @@ export default function ClassWorkspacePage({ params }: { params: { id: string } 
 
   if (loading) {
     return (
-      <AppShell currentPath={classesHref} userName={currentUser?.name} userRole={isAdmin ? 'Administrator' : 'Teacher'} roleMode={roleMode}>
+      <AppShell currentPath={classesHref} userName={isAdmin ? 'System Admin' : currentUser?.name} userRole={isAdmin ? 'ADMIN' : 'Teacher'} roleMode={roleMode}>
         <div className="p-12 text-center text-sm text-[#656C79]">Loading class workspace...</div>
       </AppShell>
     );
@@ -52,7 +52,7 @@ export default function ClassWorkspacePage({ params }: { params: { id: string } 
 
   if (error || !cls) {
     return (
-      <AppShell currentPath={classesHref} userName={currentUser?.name} userRole={isAdmin ? 'Administrator' : 'Teacher'} roleMode={roleMode}>
+      <AppShell currentPath={classesHref} userName={isAdmin ? 'System Admin' : currentUser?.name} userRole={isAdmin ? 'ADMIN' : 'Teacher'} roleMode={roleMode}>
         <div className="p-6 max-w-xl mx-auto">
           <ErrorState
             title="Unable to load class workspace"
@@ -65,7 +65,7 @@ export default function ClassWorkspacePage({ params }: { params: { id: string } 
   }
 
   return (
-    <AppShell currentPath={classesHref} userName={currentUser?.name} userRole={isAdmin ? 'Administrator' : 'Teacher'} roleMode={roleMode}>
+    <AppShell currentPath={classesHref} userName={isAdmin ? 'System Admin' : currentUser?.name} userRole={isAdmin ? 'ADMIN' : 'Teacher'} roleMode={roleMode}>
       <div className="space-y-6">
         <EntityHeader
           breadcrumbs={[

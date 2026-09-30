@@ -728,8 +728,8 @@ function AdminPortalContent() {
   return (
     <AppShell
       currentPath={`/admin?tab=${activeTab}`}
-      userName={currentUser?.name || 'Administrator'}
-      userRole={currentUser?.role || 'Admin'}
+      userName="System Admin"
+      userRole="ADMIN"
       roleMode="ADMIN"
     >
       <div className="space-y-6">
