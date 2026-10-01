@@ -1,4 +1,10 @@
 {
   "buildCommand": "cd ../.. && pnpm --filter @acorn/contracts build && pnpm --filter @acorn/ui build && pnpm --filter @acorn/web build",
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://acorn-2.onrender.com/api/:path*"
+    }
+  ]
 }

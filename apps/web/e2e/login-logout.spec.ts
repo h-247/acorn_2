@@ -1,4 +1,22 @@
 import { test, expect } from '@playwright/test';
+import { resolveApiBase } from '../src/lib/api';
+
+test.describe('API Base Selection Regression', () => {
+  test('production client API base resolves to /api even if NEXT_PUBLIC_API_URL is present', () => {
+    expect(resolveApiBase('production', 'https://acorn-2.onrender.com/api')).toBe('/api');
+    expect(resolveApiBase('production', 'http://127.0.0.1:4100/api')).toBe('/api');
+    expect(resolveApiBase('production', undefined)).toBe('/api');
+    expect(resolveApiBase('production', '')).toBe('/api');
+  });
+
+  test('development and test environments preserve explicit NEXT_PUBLIC_API_URL', () => {
+    expect(resolveApiBase('development', 'http://127.0.0.1:4100/api')).toBe('http://127.0.0.1:4100/api');
+    expect(resolveApiBase('development', 'http://127.0.0.1:4100/api/')).toBe('http://127.0.0.1:4100/api');
+    expect(resolveApiBase('test', 'http://127.0.0.1:4100/api')).toBe('http://127.0.0.1:4100/api');
+    expect(resolveApiBase('development', undefined)).toBe('http://localhost:4000/api');
+    expect(resolveApiBase('development', '')).toBe('http://localhost:4000/api');
+  });
+});
 
 test.describe('Teacher Cookie Login and Logout Smoke Test', () => {
   test('should sign in teacher, verify Teacher Home and Sign Out, click Sign Out, and verify sign-in page', async ({

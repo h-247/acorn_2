@@ -1,4 +1,15 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+export function resolveApiBase(
+  nodeEnv: string | undefined = process.env.NODE_ENV,
+  publicApiUrl: string | undefined = process.env.NEXT_PUBLIC_API_URL
+): string {
+  if (nodeEnv === 'production') {
+    return '/api';
+  }
+  const rawBase = publicApiUrl && publicApiUrl.trim() !== '' ? publicApiUrl.trim() : 'http://localhost:4000/api';
+  return rawBase.replace(/\/+$/, '');
+}
+
+export const API_BASE = resolveApiBase();
 
 export function getStoredToken(): string | null {
   return null;
