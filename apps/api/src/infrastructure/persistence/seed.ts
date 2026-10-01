@@ -1,7 +1,6 @@
 import { db, pool } from './db.js';
 import * as schema from './schema.js';
 import { hashPassword } from '../auth/crypto.js';
-import { notInArray } from 'drizzle-orm';
 import {
   UserRole,
   CEFRLevel,
@@ -275,13 +274,6 @@ export async function seedDatabase() {
         set: { name: s.name, code: s.code, parentId: s.parentId, area: s.area, status: 'ACTIVE' },
       });
   }
-
-  // Ensure any other pre-existing skills are marked ARCHIVED so exactly the 12 taxonomy skills remain ACTIVE
-  const activeSkillIds = skillsData.map((s) => s.id);
-  await db
-    .update(schema.skills)
-    .set({ status: 'ARCHIVED' })
-    .where(notInArray(schema.skills.id, activeSkillIds));
 
   // 3. Exactly 1 Course: IELTS 5.0 Preparation
   console.log('Seeding exactly 1 IELTS course...');
