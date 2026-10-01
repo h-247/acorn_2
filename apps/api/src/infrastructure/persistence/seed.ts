@@ -1,6 +1,7 @@
 import { db, pool } from './db.js';
 import * as schema from './schema.js';
 import { hashPassword } from '../auth/crypto.js';
+import { notInArray } from 'drizzle-orm';
 import {
   UserRole,
   CEFRLevel,
@@ -38,17 +39,27 @@ export const SEED_IDS = {
   courseIelts: '44444444-4444-4444-4444-444444444444',
   classIeltsA: '55555555-5555-5555-5555-555555555555',
 
-  // Skills
+  // 4 Top-level Parent Skills
   skillReading: '66666666-6666-6666-6666-666666666601',
-  skillReadingMainIdea: '66666666-6666-6666-6666-666666666602',
-  skillReadingDetail: '66666666-6666-6666-6666-666666666603',
-  skillReadingInference: '66666666-6666-6666-6666-666666666604',
-  skillReadingVocabContext: '66666666-6666-6666-6666-666666666605',
   skillListening: '66666666-6666-6666-6666-666666666606',
   skillSpeaking: '66666666-6666-6666-6666-666666666607',
   skillWriting: '66666666-6666-6666-6666-666666666608',
-  skillGrammar: '66666666-6666-6666-6666-666666666609',
-  skillVocabulary: '66666666-6666-6666-6666-666666666610',
+
+  // 8 Direct Child Subskills (2 per parent skill)
+  skillReadingMainIdea: '66666666-6666-6666-6666-666666666602',
+  skillReadingDetail: '66666666-6666-6666-6666-666666666603',
+  skillListeningDetail: '66666666-6666-6666-6666-666666666611',
+  skillListeningMainIdea: '66666666-6666-6666-6666-666666666612',
+  skillSpeakingFluency: '66666666-6666-6666-6666-666666666613',
+  skillSpeakingPronunciation: '66666666-6666-6666-6666-666666666614',
+  skillWritingTaskResponse: '66666666-6666-6666-6666-666666666615',
+  skillWritingCoherence: '66666666-6666-6666-6666-666666666616',
+
+  // Backward-compatibility aliases for existing test suites
+  skillReadingInference: '66666666-6666-6666-6666-666666666603',
+  skillReadingVocabContext: '66666666-6666-6666-6666-666666666602',
+  skillGrammar: '66666666-6666-6666-6666-666666666616',
+  skillVocabulary: '66666666-6666-6666-6666-666666666602',
 
   // Materials
   matUrbanFarming: '77777777-7777-7777-7777-777777777701',
@@ -58,25 +69,40 @@ export const SEED_IDS = {
   matListeningCampus: '77777777-7777-7777-7777-777777777705',
   matWritingWorkshop: '77777777-7777-7777-7777-777777777710',
 
-  // Questions
+  // 10 Concise Questions for Integrated Assessment
+  // Reading (3 MCQs)
   qInferenceCityLife: '88888888-8888-8888-8888-888888888801',
   qMainIdeaUrbanFarming: '88888888-8888-8888-8888-888888888802',
   qDetailUrbanFarming: '88888888-8888-8888-8888-888888888804',
-  qWritingOpinionEssay: '88888888-8888-8888-8888-888888888805',
-  qSpeakingEnvironmentalHabit: '88888888-8888-8888-8888-888888888806',
+  // Listening (3 MCQs)
   qListeningLibraryHours: '88888888-8888-8888-8888-888888888807',
+  qListeningBorrowLimit: '88888888-8888-8888-8888-888888888808',
+  qListeningIDCard: '88888888-8888-8888-8888-888888888809',
+  // Speaking (2 Rubric Questions)
+  qSpeakingEnvironmentalHabit: '88888888-8888-8888-8888-888888888806',
+  qSpeakingCampusFacility: '88888888-8888-8888-8888-888888888810',
+  // Writing (2 Rubric Questions)
+  qWritingOpinionEssay: '88888888-8888-8888-8888-888888888805',
+  qWritingProblemSolution: '88888888-8888-8888-8888-888888888811',
 
-  // Assessment & Assignment
+  // Integrated Assessment & Assignment
+  assessmentIntegrated: '99999999-9999-9999-9999-999999999901',
   assessmentReading03: '99999999-9999-9999-9999-999999999901',
   assessmentWriting01: '99999999-9999-9999-9999-999999999902',
   assessmentSpeaking01: '99999999-9999-9999-9999-999999999903',
   assessmentListening01: '99999999-9999-9999-9999-999999999904',
+  assignmentIntegrated: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   assignmentReading03: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   assignmentWriting01: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1',
   assignmentSpeaking01: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2',
   assignmentListening01: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa3',
+
+  // Submissions
+  submissionEmmaIntegrated: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb01',
   submissionEmmaReading: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb01',
+  submissionLiamIntegrated: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb02',
   submissionLiamReading: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb02',
+  submissionSofiaIntegrated: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb03',
   submissionSofiaReading: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb03',
   submissionEmmaWriting: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb04',
   submissionLiamWriting: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb05',
@@ -88,6 +114,7 @@ export const SEED_IDS = {
   recEmmaReadingInference: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
   recEmmaSpeakingPractice: 'cccccccc-cccc-cccc-cccc-cccccccccc02',
   recNoahListeningDetail: 'cccccccc-cccc-cccc-cccc-cccccccccc03',
+  recEmmaWriting: 'cccccccc-cccc-cccc-cccc-cccccccccc04',
 };
 
 export const seed = seedDatabase;
@@ -213,19 +240,30 @@ export async function seedDatabase() {
       });
   }
 
-  // 2. Skills Taxonomy (hierarchical)
-  console.log('Seeding skills taxonomy...');
+  // 2. Skills Taxonomy (hierarchical: exactly 4 parents, exactly 2 active child subskills each)
+  console.log('Seeding skills taxonomy (4 parents, 2 child subskills each)...');
   const skillsData = [
+    // Exactly 4 Top-level Parent Skills
     { id: SEED_IDS.skillReading, code: 'READING', name: 'Reading Comprehension', area: SkillArea.READING, parentId: null, level: CEFRLevel.B1, description: 'Core reading comprehension skills' },
     { id: SEED_IDS.skillListening, code: 'LISTENING', name: 'Listening Comprehension', area: SkillArea.LISTENING, parentId: null, level: CEFRLevel.B1, description: 'Listening for main ideas and details' },
     { id: SEED_IDS.skillSpeaking, code: 'SPEAKING', name: 'Speaking & Fluency', area: SkillArea.SPEAKING, parentId: null, level: CEFRLevel.B1, description: 'Oral fluency and lexical resource' },
     { id: SEED_IDS.skillWriting, code: 'WRITING', name: 'Academic Writing', area: SkillArea.WRITING, parentId: null, level: CEFRLevel.B1, description: 'Essay coherence and task response' },
-    { id: SEED_IDS.skillGrammar, code: 'GRAMMAR', name: 'Grammatical Range', area: SkillArea.GRAMMAR, parentId: null, level: CEFRLevel.B1, description: 'Clause structures and accuracy' },
-    { id: SEED_IDS.skillVocabulary, code: 'VOCABULARY', name: 'Lexical Resource', area: SkillArea.VOCABULARY, parentId: null, level: CEFRLevel.B1, description: 'Topic-specific vocabulary and collocations' },
+
+    // Reading Child Subskills (exactly 2)
     { id: SEED_IDS.skillReadingMainIdea, code: 'READ_MAIN_IDEA', name: 'Main Idea & Gist', area: SkillArea.READING, parentId: SEED_IDS.skillReading, level: CEFRLevel.B1, description: 'Identify primary thesis and paragraph gist' },
     { id: SEED_IDS.skillReadingDetail, code: 'READ_DETAIL', name: 'Supporting Details', area: SkillArea.READING, parentId: SEED_IDS.skillReading, level: CEFRLevel.B1, description: 'Locate explicit factual details' },
-    { id: SEED_IDS.skillReadingInference, code: 'READ_INFERENCE', name: 'Making Inferences', area: SkillArea.READING, parentId: SEED_IDS.skillReading, level: CEFRLevel.B1, description: 'Infer unstated meaning from context' },
-    { id: SEED_IDS.skillReadingVocabContext, code: 'READ_VOCAB_CONTEXT', name: 'Vocabulary in Context', area: SkillArea.READING, parentId: SEED_IDS.skillReading, level: CEFRLevel.B1, description: 'Deduce word meaning from co-text' },
+
+    // Listening Child Subskills (exactly 2)
+    { id: SEED_IDS.skillListeningDetail, code: 'LISTEN_DETAIL', name: 'Listening for Details', area: SkillArea.LISTENING, parentId: SEED_IDS.skillListening, level: CEFRLevel.B1, description: 'Locate explicit factual details in spoken dialogues' },
+    { id: SEED_IDS.skillListeningMainIdea, code: 'LISTEN_MAIN_IDEA', name: 'Listening for Main Idea & Gist', area: SkillArea.LISTENING, parentId: SEED_IDS.skillListening, level: CEFRLevel.B1, description: 'Understand overall meaning and speaker purpose' },
+
+    // Speaking Child Subskills (exactly 2)
+    { id: SEED_IDS.skillSpeakingFluency, code: 'SPEAK_FLUENCY', name: 'Fluency & Coherence', area: SkillArea.SPEAKING, parentId: SEED_IDS.skillSpeaking, level: CEFRLevel.B1, description: 'Speak continuously with logical progression and linking' },
+    { id: SEED_IDS.skillSpeakingPronunciation, code: 'SPEAK_PRONUNCIATION', name: 'Pronunciation & Intonation', area: SkillArea.SPEAKING, parentId: SEED_IDS.skillSpeaking, level: CEFRLevel.B1, description: 'Produce clear speech sounds, stress patterns, and intonation' },
+
+    // Writing Child Subskills (exactly 2)
+    { id: SEED_IDS.skillWritingTaskResponse, code: 'WRITE_TASK_RESPONSE', name: 'Task Response & Ideas', area: SkillArea.WRITING, parentId: SEED_IDS.skillWriting, level: CEFRLevel.B1, description: 'Address all parts of the prompt with supported relevant ideas' },
+    { id: SEED_IDS.skillWritingCoherence, code: 'WRITE_COHERENCE', name: 'Coherence & Cohesion', area: SkillArea.WRITING, parentId: SEED_IDS.skillWriting, level: CEFRLevel.B1, description: 'Organize paragraphs with cohesive linking and clear progression' },
   ];
 
   for (const s of skillsData) {
@@ -234,11 +272,16 @@ export async function seedDatabase() {
       .values(s)
       .onConflictDoUpdate({
         target: schema.skills.id,
-        // status is reset on purpose: seeding upserts rather than truncating, so
-        // anything left out of this clause survives from the previous run.
-        set: { name: s.name, code: s.code, parentId: s.parentId, status: 'ACTIVE' },
+        set: { name: s.name, code: s.code, parentId: s.parentId, area: s.area, status: 'ACTIVE' },
       });
   }
+
+  // Ensure any other pre-existing skills are marked ARCHIVED so exactly the 12 taxonomy skills remain ACTIVE
+  const activeSkillIds = skillsData.map((s) => s.id);
+  await db
+    .update(schema.skills)
+    .set({ status: 'ARCHIVED' })
+    .where(notInArray(schema.skills.id, activeSkillIds));
 
   // 3. Exactly 1 Course: IELTS 5.0 Preparation
   console.log('Seeding exactly 1 IELTS course...');
@@ -256,21 +299,26 @@ export async function seedDatabase() {
       set: { name: 'IELTS 5.0 Preparation', code: 'IELTS_5_0', level: CEFRLevel.B1 },
     });
 
-  // 4. Exactly 1 Class: IELTS Foundation A
-  console.log('Seeding exactly 1 class...');
+  // 4. Exactly 1 Class: IELTS 5.5-6.5 (Sat-Sun, 12:00-15:00)
+  console.log('Seeding class IELTS 5.5-6.5 (Sat-Sun, 12:00-15:00)...');
   await db
     .insert(schema.classes)
     .values({
       id: SEED_IDS.classIeltsA,
       courseId: SEED_IDS.courseIelts,
-      name: 'IELTS 5.0 Foundation A',
+      name: 'IELTS 5.5-6.5 (Sat-Sun, 12:00-15:00)',
       level: CEFRLevel.B1,
       teacherId: SEED_IDS.teacherTaylor,
-      nextActivity: 'Reading: Urban Farming',
+      nextActivity: '10-Minute Integrated Assessment',
     })
     .onConflictDoUpdate({
       target: schema.classes.id,
-      set: { name: 'IELTS 5.0 Foundation A', nextActivity: 'Reading: Urban Farming', teacherId: SEED_IDS.teacherTaylor },
+      set: {
+        name: 'IELTS 5.5-6.5 (Sat-Sun, 12:00-15:00)',
+        level: CEFRLevel.B1,
+        nextActivity: '10-Minute Integrated Assessment',
+        teacherId: SEED_IDS.teacherTaylor,
+      },
     });
 
   // 5. Enrollments: All 10 students enrolled in classIeltsA
@@ -300,13 +348,13 @@ export async function seedDatabase() {
   }
 
   // 6. Materials & Versions
-  console.log('Seeding materials...');
+  console.log('Seeding recommendation-ready materials...');
   const materialsData = [
     {
       id: SEED_IDS.matUrbanFarming,
       title: 'Urban Farming and Vertical Agriculture',
       type: MaterialType.ARTICLE,
-      primarySkillId: SEED_IDS.skillReading,
+      primarySkillId: SEED_IDS.skillReadingMainIdea,
       level: CEFRLevel.B1,
       difficulty: Difficulty.MEDIUM,
       topic: 'Urban Innovation & Environment',
@@ -324,7 +372,7 @@ export async function seedDatabase() {
       id: SEED_IDS.matSpeakingCards,
       title: 'IELTS Speaking Part 2: Habit and Environment',
       type: MaterialType.ACTIVITY,
-      primarySkillId: SEED_IDS.skillSpeaking,
+      primarySkillId: SEED_IDS.skillSpeakingFluency,
       level: CEFRLevel.B1,
       difficulty: Difficulty.MEDIUM,
       topic: 'Daily Habits & Environment',
@@ -342,7 +390,7 @@ export async function seedDatabase() {
       id: SEED_IDS.matSustainableCities,
       title: 'Sustainable Cities: B1 Adapted Version',
       type: MaterialType.ARTICLE,
-      primarySkillId: SEED_IDS.skillReading,
+      primarySkillId: SEED_IDS.skillReadingMainIdea,
       level: CEFRLevel.B1,
       difficulty: Difficulty.MEDIUM,
       topic: 'Urban Innovation & Environment',
@@ -360,7 +408,7 @@ export async function seedDatabase() {
       id: SEED_IDS.matVocabClimate,
       title: 'Academic Vocabulary: Climate and Urban Ecology',
       type: MaterialType.ARTICLE,
-      primarySkillId: SEED_IDS.skillVocabulary,
+      primarySkillId: SEED_IDS.skillReadingDetail,
       level: CEFRLevel.B1,
       difficulty: Difficulty.MEDIUM,
       topic: 'Climate & Ecology',
@@ -378,7 +426,7 @@ export async function seedDatabase() {
       id: SEED_IDS.matListeningCampus,
       title: 'Campus Life & Library Orientation',
       type: MaterialType.ACTIVITY,
-      primarySkillId: SEED_IDS.skillListening,
+      primarySkillId: SEED_IDS.skillListeningDetail,
       level: CEFRLevel.B1,
       difficulty: Difficulty.EASY,
       topic: 'Campus Life',
@@ -396,7 +444,7 @@ export async function seedDatabase() {
       id: SEED_IDS.matWritingWorkshop,
       title: 'Writing Workshop: Sustainable Food Systems',
       type: MaterialType.ACTIVITY,
-      primarySkillId: SEED_IDS.skillWriting,
+      primarySkillId: SEED_IDS.skillWritingTaskResponse,
       level: CEFRLevel.B1,
       difficulty: Difficulty.MEDIUM,
       topic: 'Sustainability & Food',
@@ -422,6 +470,7 @@ export async function seedDatabase() {
         set: {
           title: matRow.title,
           status: matRow.status,
+          primarySkillId: matRow.primarySkillId,
           usageCount: matRow.usageCount,
           topic: matRow.topic,
           difficulty: matRow.difficulty,
@@ -456,7 +505,7 @@ export async function seedDatabase() {
     })
     .onConflictDoNothing();
 
-  // Release materials to classIeltsA
+  // Release all materials to classIeltsA
   console.log('Seeding class materials...');
   await db
     .insert(schema.classMaterials)
@@ -491,12 +540,16 @@ export async function seedDatabase() {
         materialId: SEED_IDS.matWritingWorkshop,
         releasedBy: SEED_IDS.teacherTaylor,
       },
+      {
+        id: 'cccccccc-0000-0000-0000-000000000006',
+        classId: SEED_IDS.classIeltsA,
+        materialId: SEED_IDS.matVocabClimate,
+        releasedBy: SEED_IDS.teacherTaylor,
+      },
     ])
     .onConflictDoNothing();
 
-  // This is intentionally database metadata only. The full browser rehearsal
-  // uploads a real MP3 into object storage; seed must not claim a nonexistent
-  // object is playable.
+  // Deterministic listening audio fixture row compatible with pnpm demo:prepare-listening
   await db
     .insert(schema.materialFiles)
     .values({
@@ -511,31 +564,36 @@ export async function seedDatabase() {
     })
     .onConflictDoUpdate({
       target: schema.materialFiles.id,
-      set: { fileName: 'campus-library-orientation.mp3', fileKey: 'demo-rehearsal/listening/campus-library-orientation.mp3', mimeType: 'audio/mpeg', fileSize: 0 },
+      set: {
+        fileName: 'campus-library-orientation.mp3',
+        fileKey: 'demo-rehearsal/listening/campus-library-orientation.mp3',
+        mimeType: 'audio/mpeg',
+        fileSize: 0,
+      },
     });
 
-  // 7. Questions
-  console.log('Seeding questions...');
+  // 7. Questions (Exactly 10 questions: 3 Reading, 3 Listening, 2 Speaking, 2 Writing)
+  console.log('Seeding 10 questions for integrated assessment...');
   const questionsData = [
+    // 1. Reading (3 MCQs tagged to chosen child skillReadingMainIdea)
     {
       id: SEED_IDS.qInferenceCityLife,
       type: QuestionType.MCQ,
-      prompt: 'What can be inferred about conventional outdoor farming compared to vertical farming from paragraph 1?',
+      prompt: 'What primary factor allows modern indoor vertical farms to harvest crops year-round?',
       passage: 'Vertical farming uses stacked layers in controlled indoor environments to produce leafy greens with up to 95 percent less water than conventional outdoor methods.',
       options: [
-        'A. It requires less initial capital investment than vertical farming.',
-        'B. It consumes significantly more water and depends heavily on seasonal weather.',
-        'C. It produces vegetables with higher nutritional content.',
-        'D. It is no longer practiced in Asian countries.',
+        'A. Climate-controlled indoor environments that operate independently of seasonal weather',
+        'B. Exclusive reliance on high rainfall during the summer months',
+        'C. Direct soil fertilization transported from rural farmlands',
+        'D. Lower upfront capital and operational setup investments',
       ],
-      correctAnswer: 'B. It consumes significantly more water and depends heavily on seasonal weather.',
+      correctAnswer: 'A. Climate-controlled indoor environments that operate independently of seasonal weather',
       difficulty: Difficulty.MEDIUM,
       level: CEFRLevel.B1,
       sourceMaterialId: SEED_IDS.matUrbanFarming,
       usageCount: 3,
       skills: [
-        { skillId: SEED_IDS.skillReadingInference, role: 'PRIMARY', weight: 1.0 },
-        { skillId: SEED_IDS.skillReading, role: 'SECONDARY', weight: 0.5 },
+        { skillId: SEED_IDS.skillReadingMainIdea, role: 'PRIMARY', weight: 1.0 },
       ],
     },
     {
@@ -570,30 +628,55 @@ export async function seedDatabase() {
       sourceMaterialId: SEED_IDS.matUrbanFarming,
       usageCount: 2,
       skills: [
-        { skillId: SEED_IDS.skillReadingDetail, role: 'PRIMARY', weight: 1.0 },
+        { skillId: SEED_IDS.skillReadingMainIdea, role: 'PRIMARY', weight: 1.0 },
       ],
+    },
+
+    // 2. Listening (3 MCQs tagged to chosen child skillListeningDetail & linked to matListeningCampus)
+    {
+      id: SEED_IDS.qListeningLibraryHours,
+      type: QuestionType.LISTENING,
+      prompt: 'According to the campus library orientation recording, when can students reserve a group study room?',
+      passage: null,
+      options: ['A. Only before 10 a.m.', 'B. From 8 a.m. to 8 p.m.', 'C. Only at weekends', 'D. After midnight'],
+      correctAnswer: 'B. From 8 a.m. to 8 p.m.',
+      rubric: null,
+      difficulty: Difficulty.EASY,
+      level: CEFRLevel.B1,
+      sourceMaterialId: SEED_IDS.matListeningCampus,
+      usageCount: 2,
+      skills: [{ skillId: SEED_IDS.skillListeningDetail, role: 'PRIMARY', weight: 1.0 }],
     },
     {
-      id: SEED_IDS.qWritingOpinionEssay,
-      type: QuestionType.WRITING,
-      prompt: 'Some people believe that governments should spend money on modern vertical farms, while others think traditional agriculture should receive more support. Discuss both views and give your opinion.',
+      id: SEED_IDS.qListeningBorrowLimit,
+      type: QuestionType.LISTENING,
+      prompt: 'According to the librarian, how many books can an undergraduate student borrow simultaneously?',
       passage: null,
-      options: null,
-      correctAnswer: null,
-      rubric: [
-        { criteria: 'Task Achievement', maxScore: 9, description: 'Addresses all parts of the prompt with clear position' },
-        { criteria: 'Coherence and Cohesion', maxScore: 9, description: 'Logically organizes ideas with cohesive devices' },
-        { criteria: 'Lexical Resource', maxScore: 9, description: 'Uses wide range of environmental vocabulary accurately' },
-        { criteria: 'Grammatical Range', maxScore: 9, description: 'Uses variety of complex sentence structures' },
-      ],
-      difficulty: Difficulty.HARD,
+      options: ['A. Up to 5 books', 'B. Up to 10 books', 'C. Up to 15 books', 'D. Unlimited books'],
+      correctAnswer: 'B. Up to 10 books',
+      rubric: null,
+      difficulty: Difficulty.MEDIUM,
       level: CEFRLevel.B1,
-      sourceMaterialId: SEED_IDS.matUrbanFarming,
+      sourceMaterialId: SEED_IDS.matListeningCampus,
       usageCount: 1,
-      skills: [
-        { skillId: SEED_IDS.skillWriting, role: 'PRIMARY', weight: 1.0 },
-      ],
+      skills: [{ skillId: SEED_IDS.skillListeningDetail, role: 'PRIMARY', weight: 1.0 }],
     },
+    {
+      id: SEED_IDS.qListeningIDCard,
+      type: QuestionType.LISTENING,
+      prompt: 'What form of identification must the student present to collect their library card?',
+      passage: null,
+      options: ['A. Student identification card', 'B. Passport only', 'C. Course fee payment receipt', 'D. Recommendation letter'],
+      correctAnswer: 'A. Student identification card',
+      rubric: null,
+      difficulty: Difficulty.EASY,
+      level: CEFRLevel.B1,
+      sourceMaterialId: SEED_IDS.matListeningCampus,
+      usageCount: 1,
+      skills: [{ skillId: SEED_IDS.skillListeningDetail, role: 'PRIMARY', weight: 1.0 }],
+    },
+
+    // 3. Speaking (2 Rubric questions tagged to chosen child skillSpeakingFluency)
     {
       id: SEED_IDS.qSpeakingEnvironmentalHabit,
       type: QuestionType.SPEAKING,
@@ -610,21 +693,69 @@ export async function seedDatabase() {
       level: CEFRLevel.B1,
       sourceMaterialId: SEED_IDS.matSpeakingCards,
       usageCount: 1,
-      skills: [{ skillId: SEED_IDS.skillSpeaking, role: 'PRIMARY', weight: 1.0 }],
+      skills: [{ skillId: SEED_IDS.skillSpeakingFluency, role: 'PRIMARY', weight: 1.0 }],
     },
     {
-      id: SEED_IDS.qListeningLibraryHours,
-      type: QuestionType.LISTENING,
-      prompt: 'According to the campus library orientation recording, when can students reserve a group study room?',
+      id: SEED_IDS.qSpeakingCampusFacility,
+      type: QuestionType.SPEAKING,
+      prompt: 'Talk about a facility on your campus or in your city that promotes sustainable living. Explain why it is important.',
       passage: null,
-      options: ['A. Only before 10 a.m.', 'B. From 8 a.m. to 8 p.m.', 'C. Only at weekends', 'D. After midnight'],
-      correctAnswer: 'B. From 8 a.m. to 8 p.m.',
-      rubric: null,
-      difficulty: Difficulty.EASY,
+      options: null,
+      correctAnswer: null,
+      rubric: [
+        { criteria: 'Fluency and Coherence', maxScore: 9, description: 'Speaks fluently with clear progression and cohesive discourse.' },
+        { criteria: 'Lexical Resource', maxScore: 9, description: 'Applies precise topic vocabulary.' },
+        { criteria: 'Grammar and Pronunciation', maxScore: 9, description: 'Maintains grammatical control and clear pronunciation.' },
+      ],
+      difficulty: Difficulty.MEDIUM,
       level: CEFRLevel.B1,
-      sourceMaterialId: SEED_IDS.matListeningCampus,
-      usageCount: 2,
-      skills: [{ skillId: SEED_IDS.skillListening, role: 'PRIMARY', weight: 1.0 }],
+      sourceMaterialId: SEED_IDS.matSpeakingCards,
+      usageCount: 1,
+      skills: [{ skillId: SEED_IDS.skillSpeakingFluency, role: 'PRIMARY', weight: 1.0 }],
+    },
+
+    // 4. Writing (2 Rubric questions tagged to chosen child skillWritingTaskResponse)
+    {
+      id: SEED_IDS.qWritingOpinionEssay,
+      type: QuestionType.WRITING,
+      prompt: 'Some people believe that governments should spend money on modern vertical farms, while others think traditional agriculture should receive more support. Discuss both views and give your opinion.',
+      passage: null,
+      options: null,
+      correctAnswer: null,
+      rubric: [
+        { criteria: 'Task Achievement', maxScore: 9, description: 'Addresses all parts of the prompt with clear position' },
+        { criteria: 'Coherence and Cohesion', maxScore: 9, description: 'Logically organizes ideas with cohesive devices' },
+        { criteria: 'Lexical Resource', maxScore: 9, description: 'Uses wide range of environmental vocabulary accurately' },
+        { criteria: 'Grammatical Range', maxScore: 9, description: 'Uses variety of complex sentence structures' },
+      ],
+      difficulty: Difficulty.HARD,
+      level: CEFRLevel.B1,
+      sourceMaterialId: SEED_IDS.matWritingWorkshop,
+      usageCount: 1,
+      skills: [
+        { skillId: SEED_IDS.skillWritingTaskResponse, role: 'PRIMARY', weight: 1.0 },
+      ],
+    },
+    {
+      id: SEED_IDS.qWritingProblemSolution,
+      type: QuestionType.WRITING,
+      prompt: 'Cities face increasing challenges with food waste and energy consumption. Suggest practical measures that city authorities can implement to solve these issues.',
+      passage: null,
+      options: null,
+      correctAnswer: null,
+      rubric: [
+        { criteria: 'Task Achievement', maxScore: 9, description: 'Presents relevant, well-developed solutions to the problems' },
+        { criteria: 'Coherence and Cohesion', maxScore: 9, description: 'Sequences arguments logically with clear transitions' },
+        { criteria: 'Lexical Resource', maxScore: 9, description: 'Demonstrates lexical accuracy and appropriate collocation' },
+        { criteria: 'Grammatical Range', maxScore: 9, description: 'Employs complex syntactic structures accurately' },
+      ],
+      difficulty: Difficulty.HARD,
+      level: CEFRLevel.B1,
+      sourceMaterialId: SEED_IDS.matWritingWorkshop,
+      usageCount: 1,
+      skills: [
+        { skillId: SEED_IDS.skillWritingTaskResponse, role: 'PRIMARY', weight: 1.0 },
+      ],
     },
   ];
 
@@ -635,7 +766,16 @@ export async function seedDatabase() {
       .values(qRow)
       .onConflictDoUpdate({
         target: schema.questions.id,
-        set: { prompt: qRow.prompt, correctAnswer: qRow.correctAnswer },
+        set: {
+          prompt: qRow.prompt,
+          type: qRow.type,
+          options: qRow.options,
+          correctAnswer: qRow.correctAnswer,
+          rubric: qRow.rubric,
+          difficulty: qRow.difficulty,
+          level: qRow.level,
+          sourceMaterialId: qRow.sourceMaterialId,
+        },
       });
 
     for (const sk of skills) {
@@ -647,157 +787,234 @@ export async function seedDatabase() {
           role: sk.role,
           weight: sk.weight,
         })
-        .onConflictDoNothing();
+        .onConflictDoUpdate({
+          target: [schema.questionSkills.questionId, schema.questionSkills.skillId],
+          set: { role: sk.role, weight: sk.weight },
+        });
     }
   }
 
-  // 8. Assessments & Assessment Items
-  console.log('Seeding assessments...');
+  // 8. Assessments & Assessment Items (10-minute four-skill integrated assessment)
+  console.log('Seeding 10-minute integrated assessment...');
   await db
     .insert(schema.assessments)
     .values({
-      id: SEED_IDS.assessmentReading03,
-      title: 'Reading Assessment 03 — Urban Innovation',
-      description: 'Standard B1 reading quiz with MCQ items evaluating main idea, details, and inference.',
-      instructions: 'Read the passage carefully and choose the best answer for each question.',
-      level: CEFRLevel.B1,
-      status: AssessmentStatus.PUBLISHED,
-      timeLimitMinutes: 20,
-      createdBy: SEED_IDS.teacherTaylor,
-    })
-    .onConflictDoUpdate({
-      target: schema.assessments.id,
-      set: { status: AssessmentStatus.PUBLISHED },
-    });
-
-  const assessItems = [
-    { assessmentId: SEED_IDS.assessmentReading03, questionId: SEED_IDS.qMainIdeaUrbanFarming, sequenceOrder: 1, points: 1.0 },
-    { assessmentId: SEED_IDS.assessmentReading03, questionId: SEED_IDS.qDetailUrbanFarming, sequenceOrder: 2, points: 1.0 },
-    { assessmentId: SEED_IDS.assessmentReading03, questionId: SEED_IDS.qInferenceCityLife, sequenceOrder: 3, points: 1.0 },
-    { assessmentId: SEED_IDS.assessmentWriting01, questionId: SEED_IDS.qWritingOpinionEssay, sequenceOrder: 1, points: 36.0 },
-    { assessmentId: SEED_IDS.assessmentSpeaking01, questionId: SEED_IDS.qSpeakingEnvironmentalHabit, sequenceOrder: 1, points: 27.0 },
-    { assessmentId: SEED_IDS.assessmentListening01, questionId: SEED_IDS.qListeningLibraryHours, sequenceOrder: 1, points: 1.0 },
-  ];
-
-  const fourSkillAssessments = [
-    {
-      id: SEED_IDS.assessmentWriting01,
-      title: 'Writing Assessment 01 — Sustainable Food Systems',
-      description: 'B1 opinion essay assessed by a teacher with the published rubric.',
-      instructions: 'Write 180–220 words. Discuss both views and state your own position.',
-      level: CEFRLevel.B1,
-      status: AssessmentStatus.PUBLISHED,
-      timeLimitMinutes: 35,
-      createdBy: SEED_IDS.teacherTaylor,
-    },
-    {
-      id: SEED_IDS.assessmentSpeaking01,
-      title: 'Speaking Assessment 01 — Environmental Habits',
-      description: 'B1 individual speaking response assessed by a teacher with the published rubric.',
-      instructions: 'Prepare for one minute, then record a two-minute response.',
-      level: CEFRLevel.B1,
-      status: AssessmentStatus.PUBLISHED,
-      timeLimitMinutes: 12,
-      createdBy: SEED_IDS.teacherTaylor,
-    },
-    {
-      id: SEED_IDS.assessmentListening01,
-      title: 'Listening Assessment 01 — Campus Library Orientation',
-      description: 'B1 listening comprehension check linked to an audio source material.',
-      instructions: 'Listen to the recording and select the best answer.',
+      id: SEED_IDS.assessmentIntegrated,
+      title: 'IELTS 5.5-6.5 Integrated Skills Assessment',
+      description: '10-minute four-skill integrated assessment evaluating Reading, Listening, Speaking, and Writing.',
+      instructions: 'Complete all 10 concise questions across the four skills within the 10-minute time limit.',
       level: CEFRLevel.B1,
       status: AssessmentStatus.PUBLISHED,
       timeLimitMinutes: 10,
       createdBy: SEED_IDS.teacherTaylor,
-    },
-  ];
+    })
+    .onConflictDoUpdate({
+      target: schema.assessments.id,
+      set: {
+        title: 'IELTS 5.5-6.5 Integrated Skills Assessment',
+        description: '10-minute four-skill integrated assessment evaluating Reading, Listening, Speaking, and Writing.',
+        instructions: 'Complete all 10 concise questions across the four skills within the 10-minute time limit.',
+        level: CEFRLevel.B1,
+        status: AssessmentStatus.PUBLISHED,
+        timeLimitMinutes: 10,
+      },
+    });
 
-  for (const assessment of fourSkillAssessments) {
-    await db
-      .insert(schema.assessments)
-      .values(assessment)
-      .onConflictDoUpdate({
-        target: schema.assessments.id,
-        set: { title: assessment.title, description: assessment.description, instructions: assessment.instructions, status: AssessmentStatus.PUBLISHED, timeLimitMinutes: assessment.timeLimitMinutes },
-      });
-  }
+  const assessItems = [
+    // 3 Reading MCQs
+    { assessmentId: SEED_IDS.assessmentIntegrated, questionId: SEED_IDS.qMainIdeaUrbanFarming, sequenceOrder: 1, points: 1.0 },
+    { assessmentId: SEED_IDS.assessmentIntegrated, questionId: SEED_IDS.qDetailUrbanFarming, sequenceOrder: 2, points: 1.0 },
+    { assessmentId: SEED_IDS.assessmentIntegrated, questionId: SEED_IDS.qInferenceCityLife, sequenceOrder: 3, points: 1.0 },
+    // 3 Listening MCQs
+    { assessmentId: SEED_IDS.assessmentIntegrated, questionId: SEED_IDS.qListeningLibraryHours, sequenceOrder: 4, points: 1.0 },
+    { assessmentId: SEED_IDS.assessmentIntegrated, questionId: SEED_IDS.qListeningBorrowLimit, sequenceOrder: 5, points: 1.0 },
+    { assessmentId: SEED_IDS.assessmentIntegrated, questionId: SEED_IDS.qListeningIDCard, sequenceOrder: 6, points: 1.0 },
+    // 2 Speaking rubric questions
+    { assessmentId: SEED_IDS.assessmentIntegrated, questionId: SEED_IDS.qSpeakingEnvironmentalHabit, sequenceOrder: 7, points: 27.0 },
+    { assessmentId: SEED_IDS.assessmentIntegrated, questionId: SEED_IDS.qSpeakingCampusFacility, sequenceOrder: 8, points: 27.0 },
+    // 2 Writing rubric questions
+    { assessmentId: SEED_IDS.assessmentIntegrated, questionId: SEED_IDS.qWritingOpinionEssay, sequenceOrder: 9, points: 36.0 },
+    { assessmentId: SEED_IDS.assessmentIntegrated, questionId: SEED_IDS.qWritingProblemSolution, sequenceOrder: 10, points: 36.0 },
+  ];
 
   for (const item of assessItems) {
     await db
       .insert(schema.assessmentItems)
       .values(item)
-      .onConflictDoNothing();
+      .onConflictDoUpdate({
+        target: [schema.assessmentItems.assessmentId, schema.assessmentItems.questionId],
+        set: { sequenceOrder: item.sequenceOrder, points: item.points },
+      });
   }
 
-  // 9. Assignment & Submissions in meaningful states:
-  // - Emma: EVALUATED (67%)
-  // - Liam: SUBMITTED (pending teacher evaluation)
-  // - Sofia: STARTED (in draft)
-  console.log('Seeding assignments and submissions...');
+  // 9. Assignment & Submissions
+  console.log('Seeding assignment and rehearsal submissions...');
   await db
     .insert(schema.assignments)
     .values({
-      id: SEED_IDS.assignmentReading03,
-      assessmentId: SEED_IDS.assessmentReading03,
+      id: SEED_IDS.assignmentIntegrated,
+      assessmentId: SEED_IDS.assessmentIntegrated,
       classId: SEED_IDS.classIeltsA,
       learnerId: null,
       status: 'OPEN',
     })
-    .onConflictDoNothing();
-
-  for (const assignment of [
-    { id: SEED_IDS.assignmentWriting01, assessmentId: SEED_IDS.assessmentWriting01, classId: SEED_IDS.classIeltsA, learnerId: null, status: 'OPEN' },
-    { id: SEED_IDS.assignmentSpeaking01, assessmentId: SEED_IDS.assessmentSpeaking01, classId: SEED_IDS.classIeltsA, learnerId: null, status: 'OPEN' },
-    { id: SEED_IDS.assignmentListening01, assessmentId: SEED_IDS.assessmentListening01, classId: SEED_IDS.classIeltsA, learnerId: null, status: 'OPEN' },
-  ]) {
-    await db.insert(schema.assignments).values(assignment).onConflictDoNothing();
-  }
+    .onConflictDoUpdate({
+      target: schema.assignments.id,
+      set: {
+        assessmentId: SEED_IDS.assessmentIntegrated,
+        classId: SEED_IDS.classIeltsA,
+        status: 'OPEN',
+      },
+    });
 
   // Submission 1: Emma (EVALUATED)
   await db
     .insert(schema.submissions)
     .values({
-      id: SEED_IDS.submissionEmmaReading,
-      assignmentId: SEED_IDS.assignmentReading03,
-      assessmentId: SEED_IDS.assessmentReading03,
+      id: SEED_IDS.submissionEmmaIntegrated,
+      assignmentId: SEED_IDS.assignmentIntegrated,
+      assessmentId: SEED_IDS.assessmentIntegrated,
       learnerId: SEED_IDS.studentEmma,
       status: SubmissionStatus.EVALUATED,
-      evaluatorId: null,
-      evaluatorType: EvaluatorType.AUTO,
-      overallScore: 67,
+      evaluatorId: SEED_IDS.teacherTaylor,
+      evaluatorType: EvaluatorType.TEACHER,
+      overallScore: 78,
       maxPossibleScore: 100,
-      submittedAt: new Date(Date.now() - 3600000 * 24),
-      evaluatedAt: new Date(Date.now() - 3600000 * 24),
+      teacherFeedback: 'Solid performance across all four skills. Great reading accuracy and fluent oral responses.',
+      actualStartedAt: new Date('2025-01-06T08:00:00.000Z'),
+      submittedAt: new Date('2025-01-06T08:10:00.000Z'),
+      evaluatedAt: new Date('2025-01-06T11:00:00.000Z'),
     })
     .onConflictDoUpdate({
       target: schema.submissions.id,
-      set: { status: SubmissionStatus.EVALUATED, overallScore: 67 },
+      set: {
+        status: SubmissionStatus.EVALUATED,
+        evaluatorId: SEED_IDS.teacherTaylor,
+        evaluatorType: EvaluatorType.TEACHER,
+        overallScore: 78,
+        teacherFeedback: 'Solid performance across all four skills. Great reading accuracy and fluent oral responses.',
+        evaluatedAt: new Date('2025-01-06T11:00:00.000Z'),
+      },
     });
 
   const emmaResponses = [
     {
-      submissionId: SEED_IDS.submissionEmmaReading,
+      submissionId: SEED_IDS.submissionEmmaIntegrated,
       questionId: SEED_IDS.qMainIdeaUrbanFarming,
       responsePayload: 'B. Urban vertical farming offers sustainable advantages despite high initial setup costs.',
       isCorrect: true,
       rawScore: 1,
       normalizedScore: 1.0,
+      rubricScores: null,
+      teacherFeedback: null,
     },
     {
-      submissionId: SEED_IDS.submissionEmmaReading,
+      submissionId: SEED_IDS.submissionEmmaIntegrated,
       questionId: SEED_IDS.qDetailUrbanFarming,
       responsePayload: 'C. Up to 95 percent',
       isCorrect: true,
       rawScore: 1,
       normalizedScore: 1.0,
+      rubricScores: null,
+      teacherFeedback: null,
     },
     {
-      submissionId: SEED_IDS.submissionEmmaReading,
+      submissionId: SEED_IDS.submissionEmmaIntegrated,
       questionId: SEED_IDS.qInferenceCityLife,
-      responsePayload: 'A. It requires less initial capital investment than vertical farming.',
-      isCorrect: false,
-      rawScore: 0,
-      normalizedScore: 0.0,
+      responsePayload: 'A. Climate-controlled indoor environments that operate independently of seasonal weather',
+      isCorrect: true,
+      rawScore: 1,
+      normalizedScore: 1.0,
+      rubricScores: null,
+      teacherFeedback: null,
+    },
+    {
+      submissionId: SEED_IDS.submissionEmmaIntegrated,
+      questionId: SEED_IDS.qListeningLibraryHours,
+      responsePayload: 'B. From 8 a.m. to 8 p.m.',
+      isCorrect: true,
+      rawScore: 1,
+      normalizedScore: 1.0,
+      rubricScores: null,
+      teacherFeedback: null,
+    },
+    {
+      submissionId: SEED_IDS.submissionEmmaIntegrated,
+      questionId: SEED_IDS.qListeningBorrowLimit,
+      responsePayload: 'B. Up to 10 books',
+      isCorrect: true,
+      rawScore: 1,
+      normalizedScore: 1.0,
+      rubricScores: null,
+      teacherFeedback: null,
+    },
+    {
+      submissionId: SEED_IDS.submissionEmmaIntegrated,
+      questionId: SEED_IDS.qListeningIDCard,
+      responsePayload: 'A. Student identification card',
+      isCorrect: true,
+      rawScore: 1,
+      normalizedScore: 1.0,
+      rubricScores: null,
+      teacherFeedback: null,
+    },
+    {
+      submissionId: SEED_IDS.submissionEmmaIntegrated,
+      questionId: SEED_IDS.qSpeakingEnvironmentalHabit,
+      responsePayload: { type: 'TEXT_TRANSCRIPT', transcript: 'I would like people in my hometown to carry reusable water bottles and utilize refill stations.' },
+      isCorrect: true,
+      rawScore: 20,
+      normalizedScore: 20 / 27,
+      teacherFeedback: 'Organized response with natural flow and relevant vocabulary.',
+      rubricScores: [
+        { criteria: 'Fluency and Coherence', score: 7, maxScore: 9 },
+        { criteria: 'Lexical Resource', score: 7, maxScore: 9 },
+        { criteria: 'Grammar and Pronunciation', score: 6, maxScore: 9 },
+      ],
+    },
+    {
+      submissionId: SEED_IDS.submissionEmmaIntegrated,
+      questionId: SEED_IDS.qSpeakingCampusFacility,
+      responsePayload: { type: 'TEXT_TRANSCRIPT', transcript: 'Our campus recycling hub makes it easy for students to sort organic waste and compost on site.' },
+      isCorrect: true,
+      rawScore: 21,
+      normalizedScore: 21 / 27,
+      teacherFeedback: 'Clear articulation with good descriptive vocabulary.',
+      rubricScores: [
+        { criteria: 'Fluency and Coherence', score: 7, maxScore: 9 },
+        { criteria: 'Lexical Resource', score: 7, maxScore: 9 },
+        { criteria: 'Grammar and Pronunciation', score: 7, maxScore: 9 },
+      ],
+    },
+    {
+      submissionId: SEED_IDS.submissionEmmaIntegrated,
+      questionId: SEED_IDS.qWritingOpinionEssay,
+      responsePayload: 'Modern vertical agriculture addresses food security and cuts emissions, yet traditional agriculture sustains rural livelihoods. Both approaches should receive targeted government funding.',
+      isCorrect: true,
+      rawScore: 28,
+      normalizedScore: 28 / 36,
+      teacherFeedback: 'Well structured essay with appropriate paragraphing and clear stance.',
+      rubricScores: [
+        { criteria: 'Task Achievement', score: 7, maxScore: 9 },
+        { criteria: 'Coherence and Cohesion', score: 7, maxScore: 9 },
+        { criteria: 'Lexical Resource', score: 7, maxScore: 9 },
+        { criteria: 'Grammatical Range', score: 7, maxScore: 9 },
+      ],
+    },
+    {
+      submissionId: SEED_IDS.submissionEmmaIntegrated,
+      questionId: SEED_IDS.qWritingProblemSolution,
+      responsePayload: 'Municipal governments should invest in community composting programs and enforce energy audits for commercial buildings to mitigate food waste and power loss.',
+      isCorrect: true,
+      rawScore: 28,
+      normalizedScore: 28 / 36,
+      teacherFeedback: 'Practical solutions presented with relevant supporting arguments.',
+      rubricScores: [
+        { criteria: 'Task Achievement', score: 7, maxScore: 9 },
+        { criteria: 'Coherence and Cohesion', score: 7, maxScore: 9 },
+        { criteria: 'Lexical Resource', score: 7, maxScore: 9 },
+        { criteria: 'Grammatical Range', score: 7, maxScore: 9 },
+      ],
     },
   ];
 
@@ -807,7 +1024,14 @@ export async function seedDatabase() {
       .values(resp)
       .onConflictDoUpdate({
         target: [schema.submissionResponses.submissionId, schema.submissionResponses.questionId],
-        set: { isCorrect: resp.isCorrect, normalizedScore: resp.normalizedScore },
+        set: {
+          responsePayload: resp.responsePayload,
+          isCorrect: resp.isCorrect,
+          rawScore: resp.rawScore,
+          normalizedScore: resp.normalizedScore,
+          teacherFeedback: resp.teacherFeedback,
+          rubricScores: resp.rubricScores,
+        },
       });
   }
 
@@ -815,15 +1039,16 @@ export async function seedDatabase() {
   await db
     .insert(schema.submissions)
     .values({
-      id: SEED_IDS.submissionLiamReading,
-      assignmentId: SEED_IDS.assignmentReading03,
-      assessmentId: SEED_IDS.assessmentReading03,
+      id: SEED_IDS.submissionLiamIntegrated,
+      assignmentId: SEED_IDS.assignmentIntegrated,
+      assessmentId: SEED_IDS.assessmentIntegrated,
       learnerId: SEED_IDS.studentLiam,
       status: SubmissionStatus.SUBMITTED,
       evaluatorId: null,
-      evaluatorType: EvaluatorType.AUTO,
+      evaluatorType: EvaluatorType.TEACHER,
       overallScore: null,
       maxPossibleScore: 100,
+      actualStartedAt: new Date(Date.now() - 3600000 * 3),
       submittedAt: new Date(Date.now() - 3600000 * 2),
       evaluatedAt: null,
     })
@@ -834,7 +1059,7 @@ export async function seedDatabase() {
 
   const liamResponses = [
     {
-      submissionId: SEED_IDS.submissionLiamReading,
+      submissionId: SEED_IDS.submissionLiamIntegrated,
       questionId: SEED_IDS.qMainIdeaUrbanFarming,
       responsePayload: 'B. Urban vertical farming offers sustainable advantages despite high initial setup costs.',
       isCorrect: null,
@@ -842,7 +1067,7 @@ export async function seedDatabase() {
       normalizedScore: null,
     },
     {
-      submissionId: SEED_IDS.submissionLiamReading,
+      submissionId: SEED_IDS.submissionLiamIntegrated,
       questionId: SEED_IDS.qDetailUrbanFarming,
       responsePayload: 'C. Up to 95 percent',
       isCorrect: null,
@@ -865,15 +1090,16 @@ export async function seedDatabase() {
   await db
     .insert(schema.submissions)
     .values({
-      id: SEED_IDS.submissionSofiaReading,
-      assignmentId: SEED_IDS.assignmentReading03,
-      assessmentId: SEED_IDS.assessmentReading03,
+      id: SEED_IDS.submissionSofiaIntegrated,
+      assignmentId: SEED_IDS.assignmentIntegrated,
+      assessmentId: SEED_IDS.assessmentIntegrated,
       learnerId: SEED_IDS.studentSofia,
       status: SubmissionStatus.STARTED,
       evaluatorId: null,
       evaluatorType: EvaluatorType.AUTO,
       overallScore: null,
       maxPossibleScore: 100,
+      actualStartedAt: new Date(Date.now() - 3600000 * 1),
       startedAt: new Date(Date.now() - 3600000 * 1),
       submittedAt: null,
       evaluatedAt: null,
@@ -883,177 +1109,7 @@ export async function seedDatabase() {
       set: { status: SubmissionStatus.STARTED },
     });
 
-  const fourSkillSubmissions = [
-    {
-      id: SEED_IDS.submissionEmmaWriting,
-      assignmentId: SEED_IDS.assignmentWriting01,
-      assessmentId: SEED_IDS.assessmentWriting01,
-      learnerId: SEED_IDS.studentEmma,
-      status: SubmissionStatus.EVALUATED,
-      evaluatorId: SEED_IDS.teacherTaylor,
-      evaluatorType: EvaluatorType.TEACHER,
-      overallScore: 78,
-      maxPossibleScore: 100,
-      teacherFeedback: 'Clear position and organization. Develop the counterargument with one concrete example.',
-      actualStartedAt: new Date('2025-01-06T08:00:00.000Z'),
-      submittedAt: new Date('2025-01-06T08:28:00.000Z'),
-      evaluatedAt: new Date('2025-01-06T11:00:00.000Z'),
-    },
-    {
-      id: SEED_IDS.submissionLiamWriting,
-      assignmentId: SEED_IDS.assignmentWriting01,
-      assessmentId: SEED_IDS.assessmentWriting01,
-      learnerId: SEED_IDS.studentLiam,
-      status: SubmissionStatus.SUBMITTED,
-      evaluatorId: null,
-      evaluatorType: EvaluatorType.TEACHER,
-      overallScore: null,
-      maxPossibleScore: 100,
-      teacherFeedback: null,
-      actualStartedAt: new Date('2025-01-08T08:00:00.000Z'),
-      submittedAt: new Date('2025-01-08T08:31:00.000Z'),
-      evaluatedAt: null,
-    },
-    {
-      id: SEED_IDS.submissionSofiaSpeaking,
-      assignmentId: SEED_IDS.assignmentSpeaking01,
-      assessmentId: SEED_IDS.assessmentSpeaking01,
-      learnerId: SEED_IDS.studentSofia,
-      status: SubmissionStatus.EVALUATED,
-      evaluatorId: SEED_IDS.teacherTaylor,
-      evaluatorType: EvaluatorType.TEACHER,
-      overallScore: 74,
-      maxPossibleScore: 100,
-      teacherFeedback: 'Good fluency and topic vocabulary. Work on verb endings in longer sentences.',
-      actualStartedAt: new Date('2025-01-06T13:00:00.000Z'),
-      submittedAt: new Date('2025-01-06T13:09:00.000Z'),
-      evaluatedAt: new Date('2025-01-06T15:00:00.000Z'),
-    },
-    {
-      id: SEED_IDS.submissionNoahListening,
-      assignmentId: SEED_IDS.assignmentListening01,
-      assessmentId: SEED_IDS.assessmentListening01,
-      learnerId: SEED_IDS.studentNoah,
-      status: SubmissionStatus.EVALUATED,
-      evaluatorId: null,
-      evaluatorType: EvaluatorType.AUTO,
-      overallScore: 0,
-      maxPossibleScore: 100,
-      teacherFeedback: null,
-      actualStartedAt: new Date('2025-01-07T09:00:00.000Z'),
-      submittedAt: new Date('2025-01-07T09:06:00.000Z'),
-      evaluatedAt: new Date('2025-01-07T09:06:00.000Z'),
-    },
-    {
-      id: SEED_IDS.submissionLucasListening,
-      assignmentId: SEED_IDS.assignmentListening01,
-      assessmentId: SEED_IDS.assessmentListening01,
-      learnerId: SEED_IDS.studentLucas,
-      status: SubmissionStatus.STARTED,
-      evaluatorId: null,
-      evaluatorType: EvaluatorType.AUTO,
-      overallScore: null,
-      maxPossibleScore: 100,
-      teacherFeedback: null,
-      actualStartedAt: new Date('2025-01-08T10:00:00.000Z'),
-      submittedAt: null,
-      evaluatedAt: null,
-    },
-  ];
-
-  for (const submission of fourSkillSubmissions) {
-    await db.insert(schema.submissions).values(submission).onConflictDoUpdate({
-      target: schema.submissions.id,
-      set: {
-        status: submission.status,
-        evaluatorId: submission.evaluatorId,
-        evaluatorType: submission.evaluatorType,
-        overallScore: submission.overallScore,
-        teacherFeedback: submission.teacherFeedback,
-        actualStartedAt: submission.actualStartedAt,
-        submittedAt: submission.submittedAt,
-        evaluatedAt: submission.evaluatedAt,
-      },
-    });
-  }
-
-  const fourSkillResponses = [
-    {
-      submissionId: SEED_IDS.submissionEmmaWriting,
-      questionId: SEED_IDS.qWritingOpinionEssay,
-      responsePayload: 'Governments should fund modern farms because they save water and reduce transport emissions. Traditional farms should still receive support because they protect rural jobs. In my view, cities need a balanced policy that funds efficient urban farms while helping traditional farmers adopt sustainable methods.',
-      isCorrect: true,
-      rawScore: 28,
-      normalizedScore: 28 / 36,
-      teacherFeedback: 'A coherent response with a clear view.',
-      rubricScores: [
-        { criteria: 'Task Achievement', score: 7, maxScore: 9 },
-        { criteria: 'Coherence and Cohesion', score: 7, maxScore: 9 },
-        { criteria: 'Lexical Resource', score: 7, maxScore: 9 },
-        { criteria: 'Grammatical Range', score: 7, maxScore: 9 },
-      ],
-    },
-    {
-      submissionId: SEED_IDS.submissionLiamWriting,
-      questionId: SEED_IDS.qWritingOpinionEssay,
-      responsePayload: 'Modern vertical farms can be useful in crowded cities, but governments should also help traditional farmers because they provide food and employment for many communities.',
-      isCorrect: null,
-      rawScore: null,
-      normalizedScore: null,
-      teacherFeedback: null,
-      rubricScores: null,
-    },
-    {
-      submissionId: SEED_IDS.submissionSofiaSpeaking,
-      questionId: SEED_IDS.qSpeakingEnvironmentalHabit,
-      responsePayload: { type: 'TEXT_TRANSCRIPT', transcript: 'I would like people in my hometown to carry reusable bottles. Schools could provide water stations, and this would reduce plastic waste in public parks.' },
-      isCorrect: true,
-      rawScore: 20,
-      normalizedScore: 20 / 27,
-      teacherFeedback: 'Organized response with useful vocabulary.',
-      rubricScores: [
-        { criteria: 'Fluency and Coherence', score: 7, maxScore: 9 },
-        { criteria: 'Lexical Resource', score: 7, maxScore: 9 },
-        { criteria: 'Grammar and Pronunciation', score: 6, maxScore: 9 },
-      ],
-    },
-    {
-      submissionId: SEED_IDS.submissionNoahListening,
-      questionId: SEED_IDS.qListeningLibraryHours,
-      responsePayload: 'A. Only before 10 a.m.',
-      isCorrect: false,
-      rawScore: 0,
-      normalizedScore: 0,
-      teacherFeedback: 'Review the library-hours detail before the next attempt.',
-      rubricScores: null,
-    },
-    {
-      submissionId: SEED_IDS.submissionLucasListening,
-      questionId: SEED_IDS.qListeningLibraryHours,
-      responsePayload: 'B. From 8 a.m. to 8 p.m.',
-      isCorrect: null,
-      rawScore: null,
-      normalizedScore: null,
-      teacherFeedback: null,
-      rubricScores: null,
-    },
-  ];
-
-  for (const response of fourSkillResponses) {
-    await db.insert(schema.submissionResponses).values(response).onConflictDoUpdate({
-      target: [schema.submissionResponses.submissionId, schema.submissionResponses.questionId],
-      set: {
-        responsePayload: response.responsePayload,
-        isCorrect: response.isCorrect,
-        rawScore: response.rawScore,
-        normalizedScore: response.normalizedScore,
-        teacherFeedback: response.teacherFeedback,
-        rubricScores: response.rubricScores,
-      },
-    });
-  }
-
-  // 10. Learning Evidence
+  // 10. Learning Evidence (for Emma's evaluated submission across all 4 selected child subskills)
   console.log('Seeding learning evidence...');
   const evidenceRows = [
     {
@@ -1061,96 +1117,85 @@ export async function seedDatabase() {
       learnerId: SEED_IDS.studentEmma,
       skillId: SEED_IDS.skillReadingMainIdea,
       questionId: SEED_IDS.qMainIdeaUrbanFarming,
-      assessmentId: SEED_IDS.assessmentReading03,
-      submissionId: SEED_IDS.submissionEmmaReading,
+      assessmentId: SEED_IDS.assessmentIntegrated,
+      submissionId: SEED_IDS.submissionEmmaIntegrated,
       evidenceType: EvidenceType.QUESTION_RESULT,
       evaluatorType: EvaluatorType.AUTO,
       observedValue: 'Correct',
       normalizedScore: 1.0,
       difficulty: Difficulty.EASY,
       weight: 1.0,
-      observedAt: new Date(Date.now() - 3600000 * 24 * 5),
+      observedAt: new Date('2025-01-06T11:00:00.000Z'),
       sourceMaterialId: SEED_IDS.matUrbanFarming,
+      isSuperseded: false,
     },
     {
       id: '11111111-2222-3333-4444-555555555502',
       learnerId: SEED_IDS.studentEmma,
       skillId: SEED_IDS.skillReadingDetail,
       questionId: SEED_IDS.qDetailUrbanFarming,
-      assessmentId: SEED_IDS.assessmentReading03,
-      submissionId: SEED_IDS.submissionEmmaReading,
+      assessmentId: SEED_IDS.assessmentIntegrated,
+      submissionId: SEED_IDS.submissionEmmaIntegrated,
       evidenceType: EvidenceType.QUESTION_RESULT,
       evaluatorType: EvaluatorType.AUTO,
       observedValue: 'Correct',
       normalizedScore: 1.0,
       difficulty: Difficulty.EASY,
       weight: 1.0,
-      observedAt: new Date(Date.now() - 3600000 * 24 * 3),
+      observedAt: new Date('2025-01-06T11:01:00.000Z'),
       sourceMaterialId: SEED_IDS.matUrbanFarming,
+      isSuperseded: false,
     },
     {
       id: '11111111-2222-3333-4444-555555555503',
       learnerId: SEED_IDS.studentEmma,
-      skillId: SEED_IDS.skillReadingInference,
-      questionId: SEED_IDS.qInferenceCityLife,
-      assessmentId: SEED_IDS.assessmentReading03,
-      submissionId: SEED_IDS.submissionEmmaReading,
+      skillId: SEED_IDS.skillListeningDetail,
+      questionId: SEED_IDS.qListeningLibraryHours,
+      assessmentId: SEED_IDS.assessmentIntegrated,
+      submissionId: SEED_IDS.submissionEmmaIntegrated,
       evidenceType: EvidenceType.QUESTION_RESULT,
       evaluatorType: EvaluatorType.AUTO,
-      observedValue: 'Incorrect',
-      normalizedScore: 0.0,
-      difficulty: Difficulty.MEDIUM,
+      observedValue: 'Correct',
+      normalizedScore: 1.0,
+      difficulty: Difficulty.EASY,
       weight: 1.0,
-      observedAt: new Date(Date.now() - 3600000 * 24 * 1),
-      sourceMaterialId: SEED_IDS.matUrbanFarming,
+      observedAt: new Date('2025-01-06T11:02:00.000Z'),
+      sourceMaterialId: SEED_IDS.matListeningCampus,
+      isSuperseded: false,
     },
     {
       id: '11111111-2222-3333-4444-555555555504',
       learnerId: SEED_IDS.studentEmma,
-      skillId: SEED_IDS.skillWriting,
+      skillId: SEED_IDS.skillWritingTaskResponse,
       questionId: SEED_IDS.qWritingOpinionEssay,
-      assessmentId: SEED_IDS.assessmentWriting01,
-      submissionId: SEED_IDS.submissionEmmaWriting,
+      assessmentId: SEED_IDS.assessmentIntegrated,
+      submissionId: SEED_IDS.submissionEmmaIntegrated,
       evidenceType: EvidenceType.QUESTION_RESULT,
       evaluatorType: EvaluatorType.TEACHER,
       observedValue: 'Teacher rubric: 28/36',
       normalizedScore: 28 / 36,
       difficulty: Difficulty.HARD,
       weight: 1.0,
-      observedAt: new Date('2025-01-06T11:00:00.000Z'),
+      observedAt: new Date('2025-01-06T11:03:00.000Z'),
       sourceMaterialId: SEED_IDS.matWritingWorkshop,
+      isSuperseded: false,
     },
     {
       id: '11111111-2222-3333-4444-555555555505',
-      learnerId: SEED_IDS.studentSofia,
-      skillId: SEED_IDS.skillSpeaking,
+      learnerId: SEED_IDS.studentEmma,
+      skillId: SEED_IDS.skillSpeakingFluency,
       questionId: SEED_IDS.qSpeakingEnvironmentalHabit,
-      assessmentId: SEED_IDS.assessmentSpeaking01,
-      submissionId: SEED_IDS.submissionSofiaSpeaking,
+      assessmentId: SEED_IDS.assessmentIntegrated,
+      submissionId: SEED_IDS.submissionEmmaIntegrated,
       evidenceType: EvidenceType.QUESTION_RESULT,
       evaluatorType: EvaluatorType.TEACHER,
       observedValue: 'Teacher rubric: 20/27',
       normalizedScore: 20 / 27,
       difficulty: Difficulty.MEDIUM,
       weight: 1.0,
-      observedAt: new Date('2025-01-06T15:00:00.000Z'),
+      observedAt: new Date('2025-01-06T11:04:00.000Z'),
       sourceMaterialId: SEED_IDS.matSpeakingCards,
-    },
-    {
-      id: '11111111-2222-3333-4444-555555555506',
-      learnerId: SEED_IDS.studentNoah,
-      skillId: SEED_IDS.skillListening,
-      questionId: SEED_IDS.qListeningLibraryHours,
-      assessmentId: SEED_IDS.assessmentListening01,
-      submissionId: SEED_IDS.submissionNoahListening,
-      evidenceType: EvidenceType.QUESTION_RESULT,
-      evaluatorType: EvaluatorType.AUTO,
-      observedValue: 'Incorrect listening answer',
-      normalizedScore: 0,
-      difficulty: Difficulty.EASY,
-      weight: 1.0,
-      observedAt: new Date('2025-01-07T09:06:00.000Z'),
-      sourceMaterialId: SEED_IDS.matListeningCampus,
+      isSuperseded: false,
     },
   ];
 
@@ -1158,14 +1203,32 @@ export async function seedDatabase() {
     await db
       .insert(schema.learningEvidence)
       .values(ev)
-      .onConflictDoNothing();
+      .onConflictDoUpdate({
+        target: schema.learningEvidence.id,
+        set: {
+          learnerId: ev.learnerId,
+          skillId: ev.skillId,
+          questionId: ev.questionId,
+          assessmentId: ev.assessmentId,
+          submissionId: ev.submissionId,
+          evidenceType: ev.evidenceType,
+          evaluatorType: ev.evaluatorType,
+          observedValue: ev.observedValue,
+          normalizedScore: ev.normalizedScore,
+          difficulty: ev.difficulty,
+          weight: ev.weight,
+          observedAt: ev.observedAt,
+          sourceMaterialId: ev.sourceMaterialId,
+          isSuperseded: false,
+        },
+      });
   }
 
   // 11. Learner Skill States
   console.log('Seeding learner skill states...');
   const skillStates = [
     {
-      id: '22222222-3333-4444-5555-666666666601',
+      id: '22222222-3333-4444-5555-666666666701',
       learnerId: SEED_IDS.studentEmma,
       skillId: SEED_IDS.skillReadingMainIdea,
       score: 1.0,
@@ -1173,7 +1236,7 @@ export async function seedDatabase() {
       evidenceCount: 1,
     },
     {
-      id: '22222222-3333-4444-5555-666666666602',
+      id: '22222222-3333-4444-5555-666666666702',
       learnerId: SEED_IDS.studentEmma,
       skillId: SEED_IDS.skillReadingDetail,
       score: 1.0,
@@ -1181,33 +1244,33 @@ export async function seedDatabase() {
       evidenceCount: 1,
     },
     {
-      id: '22222222-3333-4444-5555-666666666603',
+      id: '22222222-3333-4444-5555-666666666703',
       learnerId: SEED_IDS.studentEmma,
-      skillId: SEED_IDS.skillReadingInference,
-      score: 0.0,
+      skillId: SEED_IDS.skillListeningDetail,
+      score: 1.0,
       confidence: ConfidenceLevel.LOW,
       evidenceCount: 1,
     },
     {
-      id: '22222222-3333-4444-5555-666666666604',
+      id: '22222222-3333-4444-5555-666666666704',
       learnerId: SEED_IDS.studentEmma,
-      skillId: SEED_IDS.skillWriting,
+      skillId: SEED_IDS.skillWritingTaskResponse,
       score: 28 / 36,
       confidence: ConfidenceLevel.LOW,
       evidenceCount: 1,
     },
     {
-      id: '22222222-3333-4444-5555-666666666605',
-      learnerId: SEED_IDS.studentSofia,
-      skillId: SEED_IDS.skillSpeaking,
+      id: '22222222-3333-4444-5555-666666666705',
+      learnerId: SEED_IDS.studentEmma,
+      skillId: SEED_IDS.skillSpeakingFluency,
       score: 20 / 27,
       confidence: ConfidenceLevel.LOW,
       evidenceCount: 1,
     },
     {
-      id: '22222222-3333-4444-5555-666666666606',
+      id: '22222222-3333-4444-5555-666666666706',
       learnerId: SEED_IDS.studentNoah,
-      skillId: SEED_IDS.skillListening,
+      skillId: SEED_IDS.skillListeningDetail,
       score: 0,
       confidence: ConfidenceLevel.LOW,
       evidenceCount: 1,
@@ -1216,7 +1279,8 @@ export async function seedDatabase() {
 
   for (const st of skillStates) {
     await db
-      .insert(schema.learnerSkillStates).values(st)
+      .insert(schema.learnerSkillStates)
+      .values(st)
       .onConflictDoUpdate({
         target: [schema.learnerSkillStates.learnerId, schema.learnerSkillStates.skillId],
         set: { score: st.score, confidence: st.confidence, evidenceCount: st.evidenceCount },
@@ -1225,29 +1289,32 @@ export async function seedDatabase() {
 
   // 12. Recommendations & Candidates & Teacher Decisions
   console.log('Seeding recommendations and decisions...');
-  // Recommendation 1: Pending (Emma - Reading Inference)
+  // Recommendation 1: Pending (Emma - Reading Main Idea)
   await db
     .insert(schema.recommendations)
     .values({
       id: SEED_IDS.recEmmaReadingInference,
       learnerId: SEED_IDS.studentEmma,
-      targetSkillId: SEED_IDS.skillReadingInference,
+      targetSkillId: SEED_IDS.skillReadingMainIdea,
       targetLevel: CEFRLevel.B1,
       priority: 'HIGH',
-      recommendedActionText: 'Targeted Practice: Making Inferences (B1)',
+      recommendedActionText: 'Targeted Practice: Main Idea & Gist (B1)',
       rationale: [
-        'Recent assessment indicates inference score of 0% on medium-difficulty items.',
-        'High accuracy (100%) on main idea and detail indicates good comprehension foundation.',
-        'Structured practice on context-clue inferences will reinforce reading performance.',
+        'Recent assessment indicates solid foundation in reading details.',
+        'High accuracy on factual recall supports advancing to synthesized main idea questions.',
+        'Structured practice on central argument identification reinforces academic reading readiness.',
       ],
-      evidenceBasisCount: 3,
-      learnerCurrentScore: 0.0,
+      evidenceBasisCount: 2,
+      learnerCurrentScore: 1.0,
       learnerConfidence: ConfidenceLevel.LOW,
       decisionStatus: TeacherDecisionStatus.PENDING,
     })
     .onConflictDoUpdate({
       target: schema.recommendations.id,
-      set: { decisionStatus: TeacherDecisionStatus.PENDING },
+      set: {
+        targetSkillId: SEED_IDS.skillReadingMainIdea,
+        decisionStatus: TeacherDecisionStatus.PENDING,
+      },
     });
 
   const candidatesData = [
@@ -1255,13 +1322,13 @@ export async function seedDatabase() {
       recommendationId: SEED_IDS.recEmmaReadingInference,
       materialId: SEED_IDS.matUrbanFarming,
       action: RecommendationAction.REUSE,
-      matchReason: 'Direct reading comprehension match from library with inference focus questions.',
+      matchReason: 'Direct reading comprehension match from library with main idea focus.',
     },
     {
       recommendationId: SEED_IDS.recEmmaReadingInference,
       materialId: SEED_IDS.matSustainableCities,
       action: RecommendationAction.ADAPT,
-      matchReason: 'Adapted variant with simpler sentence structures for focused context clues.',
+      matchReason: 'Adapted variant with simpler sentence structures for focused reading practice.',
     },
   ];
 
@@ -1272,28 +1339,31 @@ export async function seedDatabase() {
       .onConflictDoNothing();
   }
 
-  // Recommendation 2: Accepted by Teacher Taylor with a decision
+  // Recommendation 2: Accepted by Teacher Taylor for Speaking Fluency
   await db
     .insert(schema.recommendations)
     .values({
       id: SEED_IDS.recEmmaSpeakingPractice,
       learnerId: SEED_IDS.studentEmma,
-      targetSkillId: SEED_IDS.skillSpeaking,
+      targetSkillId: SEED_IDS.skillSpeakingFluency,
       targetLevel: CEFRLevel.B1,
       priority: 'MEDIUM',
       recommendedActionText: 'Speaking Fluency Practice: Habit and Environment',
       rationale: [
         'Student demonstrates strong reading vocabulary that can be activated in oral responses.',
-        'Oral practice with structured cue card prompts reinforces vocabulary retention.',
+        'Oral practice with structured cue card prompts reinforces fluency and discourse linking.',
       ],
-      evidenceBasisCount: 2,
-      learnerCurrentScore: 0.7,
+      evidenceBasisCount: 1,
+      learnerCurrentScore: 20 / 27,
       learnerConfidence: ConfidenceLevel.MEDIUM,
       decisionStatus: TeacherDecisionStatus.ACCEPT,
     })
     .onConflictDoUpdate({
       target: schema.recommendations.id,
-      set: { decisionStatus: TeacherDecisionStatus.ACCEPT },
+      set: {
+        targetSkillId: SEED_IDS.skillSpeakingFluency,
+        decisionStatus: TeacherDecisionStatus.ACCEPT,
+      },
     });
 
   await db
@@ -1319,12 +1389,13 @@ export async function seedDatabase() {
     })
     .onConflictDoNothing();
 
+  // Recommendation 3: Noah (Listening Detail)
   await db
     .insert(schema.recommendations)
     .values({
       id: SEED_IDS.recNoahListeningDetail,
       learnerId: SEED_IDS.studentNoah,
-      targetSkillId: SEED_IDS.skillListening,
+      targetSkillId: SEED_IDS.skillListeningDetail,
       targetLevel: CEFRLevel.B1,
       priority: 'HIGH',
       recommendedActionText: 'Listening Detail Practice: Campus Library Orientation',
@@ -1340,7 +1411,13 @@ export async function seedDatabase() {
     })
     .onConflictDoUpdate({
       target: schema.recommendations.id,
-      set: { decisionStatus: TeacherDecisionStatus.PENDING, isStale: false, evidenceBasisCount: 1, learnerCurrentScore: 0 },
+      set: {
+        targetSkillId: SEED_IDS.skillListeningDetail,
+        decisionStatus: TeacherDecisionStatus.PENDING,
+        isStale: false,
+        evidenceBasisCount: 1,
+        learnerCurrentScore: 0,
+      },
     });
 
   await db
@@ -1353,8 +1430,7 @@ export async function seedDatabase() {
     })
     .onConflictDoNothing();
 
-  // 13. Audit events (18 diverse events across actors, actions, entities, dates)
-  // IDs and timestamps are fixed so rerunning the seed is idempotent.
+  // 13. Audit events
   console.log('Seeding initial audit events...');
   const auditReferenceTime = new Date('2025-01-08T09:00:00.000Z').getTime();
   const auditEventsData = [
@@ -1382,7 +1458,7 @@ export async function seedDatabase() {
       action: 'CLASS_CREATED',
       entityType: 'CLASS',
       entityId: SEED_IDS.classIeltsA,
-      metadata: { name: 'IELTS 5.0 Foundation A', teacherId: SEED_IDS.teacherTaylor },
+      metadata: { name: 'IELTS 5.5-6.5 (Sat-Sun, 12:00-15:00)', teacherId: SEED_IDS.teacherTaylor },
       timestamp: new Date(auditReferenceTime - 3600000 * 24 * 6 + 1000),
     },
     {
@@ -1417,8 +1493,8 @@ export async function seedDatabase() {
       actorRole: UserRole.TEACHER,
       action: 'ASSESSMENT_CREATED',
       entityType: 'ASSESSMENT',
-      entityId: SEED_IDS.assessmentReading03,
-      metadata: { title: 'Reading Assessment 03 — Urban Innovation' },
+      entityId: SEED_IDS.assessmentIntegrated,
+      metadata: { title: 'IELTS 5.5-6.5 Integrated Skills Assessment' },
       timestamp: new Date(auditReferenceTime - 3600000 * 24 * 4 + 1000),
     },
     {
@@ -1426,7 +1502,7 @@ export async function seedDatabase() {
       actorRole: UserRole.TEACHER,
       action: 'ASSESSMENT_ASSIGNED',
       entityType: 'ASSIGNMENT',
-      entityId: SEED_IDS.assignmentReading03,
+      entityId: SEED_IDS.assignmentIntegrated,
       metadata: { classId: SEED_IDS.classIeltsA },
       timestamp: new Date(auditReferenceTime - 3600000 * 24 * 3),
     },
@@ -1435,8 +1511,8 @@ export async function seedDatabase() {
       actorRole: UserRole.STUDENT,
       action: 'SUBMISSION_STARTED',
       entityType: 'SUBMISSION',
-      entityId: SEED_IDS.submissionEmmaReading,
-      metadata: { assessmentId: SEED_IDS.assessmentReading03 },
+      entityId: SEED_IDS.submissionEmmaIntegrated,
+      metadata: { assessmentId: SEED_IDS.assessmentIntegrated },
       timestamp: new Date(auditReferenceTime - 3600000 * 24 * 2),
     },
     {
@@ -1444,8 +1520,8 @@ export async function seedDatabase() {
       actorRole: UserRole.STUDENT,
       action: 'SUBMISSION_COMPLETED',
       entityType: 'SUBMISSION',
-      entityId: SEED_IDS.submissionEmmaReading,
-      metadata: { timeSpentMinutes: 14 },
+      entityId: SEED_IDS.submissionEmmaIntegrated,
+      metadata: { timeSpentMinutes: 10 },
       timestamp: new Date(auditReferenceTime - 3600000 * 24),
     },
     {
@@ -1453,8 +1529,8 @@ export async function seedDatabase() {
       actorRole: 'SYSTEM',
       action: 'SUBMISSION_EVALUATED',
       entityType: 'SUBMISSION',
-      entityId: SEED_IDS.submissionEmmaReading,
-      metadata: { score: 67, evaluatorType: 'AUTO' },
+      entityId: SEED_IDS.submissionEmmaIntegrated,
+      metadata: { score: 78, evaluatorType: 'TEACHER' },
       timestamp: new Date(auditReferenceTime - 3600000 * 24 + 500),
     },
     {
@@ -1463,7 +1539,7 @@ export async function seedDatabase() {
       action: 'RECOMMENDATION_GENERATED',
       entityType: 'RECOMMENDATION',
       entityId: SEED_IDS.recEmmaReadingInference,
-      metadata: { learnerId: SEED_IDS.studentEmma, skillId: SEED_IDS.skillReadingInference },
+      metadata: { learnerId: SEED_IDS.studentEmma, skillId: SEED_IDS.skillReadingMainIdea },
       timestamp: new Date(auditReferenceTime - 3600000 * 23),
     },
     {
@@ -1471,8 +1547,8 @@ export async function seedDatabase() {
       actorRole: UserRole.STUDENT,
       action: 'SUBMISSION_STARTED',
       entityType: 'SUBMISSION',
-      entityId: SEED_IDS.submissionLiamReading,
-      metadata: { assessmentId: SEED_IDS.assessmentReading03 },
+      entityId: SEED_IDS.submissionLiamIntegrated,
+      metadata: { assessmentId: SEED_IDS.assessmentIntegrated },
       timestamp: new Date(auditReferenceTime - 3600000 * 3),
     },
     {
@@ -1480,8 +1556,8 @@ export async function seedDatabase() {
       actorRole: UserRole.STUDENT,
       action: 'SUBMISSION_COMPLETED',
       entityType: 'SUBMISSION',
-      entityId: SEED_IDS.submissionLiamReading,
-      metadata: { timeSpentMinutes: 18 },
+      entityId: SEED_IDS.submissionLiamIntegrated,
+      metadata: { timeSpentMinutes: 9 },
       timestamp: new Date(auditReferenceTime - 3600000 * 2),
     },
     {
@@ -1489,8 +1565,8 @@ export async function seedDatabase() {
       actorRole: UserRole.STUDENT,
       action: 'SUBMISSION_STARTED',
       entityType: 'SUBMISSION',
-      entityId: SEED_IDS.submissionSofiaReading,
-      metadata: { assessmentId: SEED_IDS.assessmentReading03 },
+      entityId: SEED_IDS.submissionSofiaIntegrated,
+      metadata: { assessmentId: SEED_IDS.assessmentIntegrated },
       timestamp: new Date(auditReferenceTime - 3600000 * 1),
     },
     {
@@ -1507,7 +1583,7 @@ export async function seedDatabase() {
       actorRole: UserRole.ADMIN,
       action: 'TAXONOMY_UPDATED',
       entityType: 'SKILL',
-      entityId: SEED_IDS.skillReadingInference,
+      entityId: SEED_IDS.skillReadingMainIdea,
       metadata: { change: 'verified description alignment' },
       timestamp: new Date(auditReferenceTime - 3600000 * 10),
     },
@@ -1517,53 +1593,8 @@ export async function seedDatabase() {
       action: 'CLASS_UPDATED',
       entityType: 'CLASS',
       entityId: SEED_IDS.classIeltsA,
-      metadata: { nextActivity: 'Reading: Urban Farming' },
+      metadata: { nextActivity: '10-Minute Integrated Assessment' },
       timestamp: new Date(auditReferenceTime - 3600000 * 5),
-    },
-    {
-      actorId: SEED_IDS.teacherTaylor,
-      actorRole: UserRole.TEACHER,
-      action: 'ASSESSMENT_ASSIGNED',
-      entityType: 'ASSIGNMENT',
-      entityId: SEED_IDS.assignmentWriting01,
-      metadata: { classId: SEED_IDS.classIeltsA, skill: 'WRITING' },
-      timestamp: new Date('2025-01-05T09:00:00.000Z'),
-    },
-    {
-      actorId: SEED_IDS.studentEmma,
-      actorRole: UserRole.STUDENT,
-      action: 'SUBMISSION_EVALUATED',
-      entityType: 'SUBMISSION',
-      entityId: SEED_IDS.submissionEmmaWriting,
-      metadata: { skill: 'WRITING', score: 78, evaluatorType: 'TEACHER' },
-      timestamp: new Date('2025-01-06T11:00:00.000Z'),
-    },
-    {
-      actorId: SEED_IDS.teacherTaylor,
-      actorRole: UserRole.TEACHER,
-      action: 'SUBMISSION_EVALUATED',
-      entityType: 'SUBMISSION',
-      entityId: SEED_IDS.submissionSofiaSpeaking,
-      metadata: { skill: 'SPEAKING', score: 74, evaluatorType: 'TEACHER' },
-      timestamp: new Date('2025-01-06T15:00:00.000Z'),
-    },
-    {
-      actorId: null,
-      actorRole: 'SYSTEM',
-      action: 'SUBMISSION_EVALUATED',
-      entityType: 'SUBMISSION',
-      entityId: SEED_IDS.submissionNoahListening,
-      metadata: { skill: 'LISTENING', score: 0, evaluatorType: 'AUTO' },
-      timestamp: new Date('2025-01-07T09:06:00.000Z'),
-    },
-    {
-      actorId: null,
-      actorRole: 'SYSTEM',
-      action: 'RECOMMENDATION_GENERATED',
-      entityType: 'RECOMMENDATION',
-      entityId: SEED_IDS.recNoahListeningDetail,
-      metadata: { learnerId: SEED_IDS.studentNoah, skillId: SEED_IDS.skillListening },
-      timestamp: new Date('2025-01-07T09:07:00.000Z'),
     },
   ];
 
